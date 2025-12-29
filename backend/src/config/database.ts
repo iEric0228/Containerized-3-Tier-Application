@@ -1,4 +1,3 @@
-
 import { Pool } from 'pg';
 
 export class DatabaseConnection {
@@ -42,7 +41,7 @@ export class DatabaseConnection {
     }
   }
 
-  // Method to get users (we'll use this to test)
+  // Method to get users
   public async getUsers() {
     const client = await this.pool.connect();
     try {

@@ -1,14 +1,7 @@
 import request from 'supertest';
 import app from '../backend/src/server';
-import { DatabaseConnection } from '../backend/src/config/database';
 
 describe('API Integration Tests', () => {
-  // Close database connections after all tests
-  afterAll(async () => {
-    const db = DatabaseConnection.getInstance();
-    await db.getPool().end();
-  });
-
   test('GET /health should return healthy status with database', async () => {
     const response = await request(app).get('/health');
     
