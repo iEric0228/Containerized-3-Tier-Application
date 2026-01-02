@@ -8,16 +8,16 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- sample data
+-- sample data (ON CONFLICT must follow the INSERT)
 INSERT INTO users (username, email) VALUES
-('devops_engineer', 'devops@company'),
-('backend_dev', 'backend@company'),
-('frontend_dev', 'frontend@company');
+  ('devops_engineer', 'devops@company'),
+  ('backend_dev', 'backend@company'),
+  ('frontend_dev', 'frontend@company')
 ON CONFLICT (username) DO NOTHING;
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
--- Grant permissions
+-- Grant permissions (optional; scope to specific objects if preferred)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO postgres;

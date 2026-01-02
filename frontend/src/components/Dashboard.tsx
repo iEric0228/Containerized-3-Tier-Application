@@ -120,7 +120,8 @@ const Dashboard: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-
+  
+      // Call getHealth without arguments
       const healthData = await ApiService.getHealth();
       setHealth(healthData);
     } catch (err) {
@@ -216,10 +217,10 @@ const Dashboard: React.FC = () => {
       <header className="dashboard-header fade-in-up">
         <div className="header-content">
           <h1 className="main-title">
-            <span className="gradient-text">DevOps Portfolio Dashboard</span>
+            <span className="gradient-text">3-Tier Application</span>
             <div className="title-underline"></div>
           </h1>
-          <p className="subtitle">Full-Stack Developer | DevOps Engineer | Cloud Architect</p>
+          <p className="subtitle">DevOps Engineer | Cloud Architect</p>
           <div className="tech-badges">
             {projectDetails.projectOverview.goals.map((goal, index) => (
               <span key={goal} className="badge" style={{'--i': index + 1} as any}>

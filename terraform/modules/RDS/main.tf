@@ -1,0 +1,23 @@
+resource "aws_db_subnet_group" "main" {
+  name       = "${var.name_prefix}-db-subnet-group"
+  subnet_ids = var.private_subnet_ids
+  tags       = var.common_tags
+}
+
+resource "aws_db_instance" "main" {
+  identifier              = "${var.name_prefix}-db"
+  engine                  = "postgres"
+  instance_class          = "db.t3.micro"
+  db_name                 = var.db_name
+  allocated_storage       = 20
+  username                = var.db_username
+  password                = data.aws_secretsmanager_secret_version.db_password.secret_string
+  db_subnet_group_name    = aws_db_subnet_group.main.name
+  vpc_security_group_ids  = [var.rds_sg_id]
+  skip_final_snapshot     = true
+  tags                    = var.common_tags
+}
+
+data "aws_secretsmanager_secret_version" "db_password" {
+  secret_id = var.db_password_secret_arn
+}

@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import {register, collectDefaultMetrics} from 'prom-client'; 
+import { register, collectDefaultMetrics, Counter } from 'prom-client';
 import dotenv from 'dotenv';
 import { DatabaseConnection } from './config/database';
 
@@ -15,6 +15,22 @@ const PORT = process.env.PORT || 3001;
 
 // Start collecting default metrics (CPU, memory, etc.)
 collectDefaultMetrics();
+
+// Custom Prometheus metrics
+const httpRequestCounter = new Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status'],
+});
+
+// Middleware to record HTTP requests
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    const route = (req as any).route?.path || req.path;
+    httpRequestCounter.labels(req.method, route, String(res.statusCode)).inc();
+  });
+  next();
+});
 
 // Initialize database connection
 const db = DatabaseConnection.getInstance();

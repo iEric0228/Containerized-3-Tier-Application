@@ -1,0 +1,378 @@
+name: CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Deployment Action'
+        required: true
+        default: 'deploy-test-destroy'
+        type: choice
+        options:
+          - 'deploy-test-destroy'
+          - 'deploy-only'
+          - 'destroy-only'
+          - 'test-only'
+      skip_destroy:
+        description: 'Skip destroy step (faster testing)'
+        required: false
+        default: false
+        type: boolean
+  #push:
+  #  branches: [ main ]
+  #pull_request:
+  # branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+  TF_WORKSPACE: dev
+  ECR_REGISTRY: 125156866057.dkr.ecr.us-east-1.amazonaws.com
+
+# Add OIDC permissions at the top level
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+jobs:
+  test-and-build:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    if: |
+      github.event.inputs.action != 'destroy-only' || 
+      github.event_name == 'push' || 
+      github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      # Backend Tests (Parallel)
+      - name: Install & Test Backend
+        working-directory: backend
+        run: |
+          npm ci --only=dev
+          npm run lint
+          npm test
+        env:
+          CI: true
+
+      # Frontend Tests (Parallel)
+      - name: Install & Test Frontend
+        working-directory: frontend
+        run: |
+          npm ci --only=dev
+          npm test -- --watch=false --coverage
+        env:
+          CI: true
+
+  terraform-check:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    if: |
+      github.event.inputs.action != 'destroy-only' || 
+      github.event_name == 'push' || 
+      github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Terraform Format Check
+        working-directory: terraform/environments/dev
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        working-directory: terraform/environments/dev
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: terraform/environments/dev
+        run: terraform validate
+
+  deploy:
+    name: Deploy Infrastructure & Apps
+    needs: [test-and-build, terraform-check]
+    runs-on: ubuntu-latest
+    if: |
+      (github.event.inputs.action == 'deploy-test-destroy' || 
+       github.event.inputs.action == 'deploy-only' ||
+       github.event_name == 'push') &&
+      github.ref == 'refs/heads/main'
+
+    outputs:
+      frontend_ecr: ${{ steps.tf-outputs.outputs.frontend_ecr }}
+      backend_ecr: ${{ steps.tf-outputs.outputs.backend_ecr }}
+      cluster_name: ${{ steps.tf-outputs.outputs.cluster_name }}
+      deployment_successful: ${{ steps.deploy-check.outputs.success }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-session-name: 3tier-app-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init & Workspace
+        working-directory: terraform/environments/dev
+        run: |
+          terraform init -input=false
+          terraform workspace select $TF_WORKSPACE || terraform workspace new $TF_WORKSPACE
+
+      - name: Terraform Plan
+        working-directory: terraform/environments/dev
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform/environments/dev
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get Infrastructure Outputs
+        id: tf-outputs
+        working-directory: terraform/environments/dev
+        run: |
+          echo "frontend_ecr=$(terraform output -raw frontend_repository_url)" >> $GITHUB_OUTPUT
+          echo "backend_ecr=$(terraform output -raw backend_repository_url)" >> $GITHUB_OUTPUT
+          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+          echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
+
+      - name: Build & Push Images (Parallel)
+        run: |
+          # Build both images in parallel
+          docker build --platform linux/amd64 -t "${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" ./frontend &
+          docker build --platform linux/amd64 -t "${{ steps.tf-outputs.outputs.backend_ecr }}:latest" ./backend &
+          wait
+          
+          # Push both images in parallel
+          docker push "${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" &
+          docker push "${{ steps.tf-outputs.outputs.backend_ecr }}:latest" &
+          wait
+
+      - name: Force ECS Service Deployment
+        run: |
+          CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
+          
+          aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "dev-frontend-service" \
+            --force-new-deployment \
+            --no-cli-pager &
+          
+          aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "dev-backend-service" \
+            --force-new-deployment \
+            --no-cli-pager &
+          
+          wait
+
+      - name: Wait for Services to be Stable
+        id: deploy-check
+        run: |
+          CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
+          
+          echo "⏳ Waiting for services to stabilize (max 10 minutes)..."
+          
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER_NAME" \
+            --services "dev-frontend-service" "dev-backend-service" \
+            --cli-connect-timeout 600 \
+            --cli-read-timeout 600 && echo "success=true" >> $GITHUB_OUTPUT || echo "success=false" >> $GITHUB_OUTPUT
+
+  test-deployment:
+    name: Test Deployed Application
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: |
+      needs.deploy.outputs.deployment_successful == 'true' &&
+      (github.event.inputs.action == 'deploy-test-destroy' || 
+       github.event.inputs.action == 'deploy-only')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-session-name: 3tier-app-test-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Get ALB DNS Name
+        id: get-alb
+        working-directory: terraform/environments/dev
+        run: |
+          terraform init -input=false
+          terraform workspace select $TF_WORKSPACE
+          ALB_DNS=$(terraform output -raw alb_dns_name)
+          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+
+      - name: Test Application Endpoints
+        run: |
+          ALB_DNS="${{ steps.get-alb.outputs.alb_dns }}"
+          
+          echo " Testing application at: http://$ALB_DNS"
+          
+          # Test frontend (with retries)
+          for i in {1..30}; do
+            if curl -f -s "http://$ALB_DNS" > /dev/null; then
+              echo "Frontend is responding"
+              break
+            fi
+            echo "⏳ Frontend not ready, retry $i/30..."
+            sleep 10
+          done
+          
+          # Test backend API (with retries)
+          for i in {1..30}; do
+            if curl -f -s "http://$ALB_DNS/api/health" > /dev/null; then
+              echo "Backend API is responding"
+              break
+            fi
+            echo " Backend API not ready, retry $i/30..."
+            sleep 10
+          done
+          
+          echo "Application tests completed!"
+
+  destroy:
+    name: Destroy Infrastructure
+    needs: [deploy, test-deployment]
+    runs-on: ubuntu-latest
+    if: |
+      always() &&
+      github.event.inputs.action == 'deploy-test-destroy' &&
+      github.event.inputs.skip_destroy != 'true' &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'failure')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-session-name: 3tier-app-destroy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init & Workspace
+        working-directory: terraform/environments/dev
+        run: |
+          terraform init -input=false
+          terraform workspace select $TF_WORKSPACE
+
+      - name: Empty ECR Repositories (Speed Up Destroy)
+        continue-on-error: true
+        run: |
+          echo "Emptying ECR repositories for faster destruction..."
+          
+          aws ecr batch-delete-image \
+            --repository-name dev-frontend \
+            --image-ids imageTag=latest \
+            --no-cli-pager || true
+          
+          aws ecr batch-delete-image \
+            --repository-name dev-backend \
+            --image-ids imageTag=latest \
+            --no-cli-pager || true
+
+      - name: Terraform Destroy
+        working-directory: terraform/environments/dev
+        run: |
+          echo "Destroying infrastructure..."
+          terraform destroy -auto-approve
+          
+          echo "Infrastructure destroyed successfully!"
+
+  destroy-only:
+    name: Destroy Only
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'destroy-only'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔐 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-session-name: 3tier-app-destroy-only-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init & Destroy
+        working-directory: terraform/environments/dev
+        run: |
+          terraform init -input=false
+          terraform workspace select $TF_WORKSPACE || echo "Workspace may not exist"
+          
+          # Empty ECR repos first
+          aws ecr batch-delete-image --repository-name dev-frontend --image-ids imageTag=latest --no-cli-pager || true
+          aws ecr batch-delete-image --repository-name dev-backend --image-ids imageTag=latest --no-cli-pager || true
+          
+          terraform destroy -auto-approve
+
+  summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [test-and-build, terraform-check, deploy, test-deployment, destroy, destroy-only]
+
+    steps:
+      - name: Pipeline Summary
+        run: |
+          echo "## CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests & Build | ${{ needs.test-and-build.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Terraform Check | ${{ needs.terraform-check.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy | ${{ needs.deploy.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Deployment | ${{ needs.test-deployment.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Destroy | ${{ needs.destroy.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Destroy Only | ${{ needs.destroy-only.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY

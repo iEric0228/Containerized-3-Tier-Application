@@ -37,8 +37,8 @@ resource "aws_security_group" "ecs_tasks" {
   # Frontend container access from ALB
   ingress {
     description     = "Frontend from ALB"
-    from_port       = 3000 # React app port
-    to_port         = 3000
+    from_port       = var.frontend_port # React app port
+    to_port         = var.frontend_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id] # Only from ALB security group
   }
@@ -46,8 +46,8 @@ resource "aws_security_group" "ecs_tasks" {
   # Backend container access from ALB  
   ingress {
     description     = "Backend from ALB"
-    from_port       = 3001 # Express API port
-    to_port         = 3001
+    from_port       = var.backend_port # Express API port
+    to_port         = var.backend_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id] # Only from ALB security group
   }
@@ -55,8 +55,8 @@ resource "aws_security_group" "ecs_tasks" {
   # Container-to-container communication
   ingress {
     description = "Inter-container communication"
-    from_port   = 3001
-    to_port     = 3001
+    from_port   = var.backend_port
+    to_port     = var.backend_port
     protocol    = "tcp"
     self        = true # Allow traffic within same security group
   }
