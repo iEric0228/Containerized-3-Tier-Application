@@ -29,6 +29,8 @@ services:
       - DB_NAME=app_db
       - DB_USER=postgres
       - DB_PASSWORD=password
+    ports:
+      - "3001:3001"                   # Backend API served on port 3001
     depends_on:                        # Start order dependency
       postgres:
         condition: service_healthy
@@ -48,28 +50,34 @@ services:
     networks:
       - app-network
 
-  # Prometheus (metrics scraping)
+
+
+  # Standalone Prometheus
   prometheus:
     image: prom/prometheus:latest
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
     ports:
       - "9090:9090"
-    depends_on:
-      - backend
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
     networks:
       - app-network
+    depends_on:
+      - backend
 
-  # Grafana (metrics visualization)
+  # Grafana LGTM Stack (includes Grafana, Loki, Tempo, Mimir)
   grafana-lgtm:
     image: grafana/otel-lgtm:latest
     ports:
-      - "3001:3000"   # Grafana UI
+      - "3002:3000"   # Grafana UI
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
-      - "3100:3100"   # Loki (optional)
+      - "3100:3100"   # Loki
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
@@ -77,11 +85,14 @@ services:
       - grafana_lgtm_data:/data
     networks:
       - app-network
+    depends_on:
+      - prometheus
+
+volumes:
+  grafana_lgtm_data:
+  prometheus_data:
+  postgres_data:  
 
 networks:
   app-network:                         # Isolated network for all services
     driver: bridge
-
-volumes:
-  postgres_data:                       # Named volume for PostgreSQL data
-  grafana_lgtm_data:

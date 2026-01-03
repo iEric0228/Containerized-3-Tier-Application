@@ -1,37 +1,69 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ApiService } from '../services/api';
 import { User, HealthCheck } from '../types/api.interface';
 import './Dashboard.css';
+
+
+// Live Metrics Interface
+interface LiveMetrics {
+  timestamp: number;
+  requests: number;
+  responseTime: number;
+  cpuUsage: number;
+  memoryUsage: number;
+  activeConnections: number;
+  errorRate: number;
+}
+
+interface LogEntry {
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
+  message: string;
+  service: string;
+}
 
 const Dashboard: React.FC = () => {
   const [health, setHealth] = useState<HealthCheck | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const [metricsCount, setMetricsCount] = useState({ 
-    requests: 0, 
-    uptime: 0, 
-    connections: 0,
-    deployments: 0,
-    performance: 0 
-  });
+  const [showLiveDemo, setShowLiveDemo] = useState(false);
   
-  // Project-specific data
+  // Live Data States
+  const [liveMetrics, setLiveMetrics] = useState<LiveMetrics[]>([]);
+  const [realtimeLogs, setRealtimeLogs] = useState<LogEntry[]>([]);
+  const [currentMetrics, setCurrentMetrics] = useState({
+    requests: 0,
+    responseTime: 0,
+    cpuUsage: 0,
+    memoryUsage: 0,
+    errorRate: 0,
+    connections: 0,
+    performance: 95,
+    uptime: 0,
+    deployments: 0
+  });
+
+  // Chart References
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
+  // Project-specific data (keep existing)
   const [projectDetails] = useState({
     // Combined Project Overview
     projectOverview: {
       summary: "Production-grade containerized 3-tier application showcasing enterprise DevOps practices: Docker multi-stage builds, Terraform IaC, CI/CD automation, Prometheus monitoring, and AWS cloud-native architecture ready for high-availability deployment.",
       goals: [
         "Docker & Container Orchestration",
-        "Terraform Infrastructure as Code",
+        "Terraform Infrastructure as Code", 
         "CI/CD Pipeline Automation",
-        "Prometheus & Grafana Monitoring"
+        "Live Metrics & Observability"
       ],
       outcomes: [
         { icon: '🐳', result: 'Multi-stage Docker builds reducing image size by 60%' },
         { icon: '🏗️', result: 'Terraform IaC automating complete AWS infrastructure' },
         { icon: '🔄', result: 'GitHub Actions CI/CD with automated testing & deployment' },
-        { icon: '📊', result: 'Prometheus metrics with Grafana real-time dashboards' }
+        { icon: '📊', result: 'Live Grafana dashboards with real-time LGTM stack' }
       ],
       benefits: [
         { icon: '🎯', benefit: 'DevOps Mastery', description: 'Hands-on experience with industry-standard DevOps tools and practices' },
@@ -66,36 +98,14 @@ const Dashboard: React.FC = () => {
         ]
       },
       {
-        area: 'CI/CD Automation',
-        icon: '🔄',
-        skills: [
-          'GitHub Actions workflows for automated testing and deployment',
-          'Automated Docker image builds and pushes to ECR',
-          'Integration testing with containerized services',
-          'Blue-green deployment strategies for zero downtime',
-          'Automated rollback mechanisms and health checks'
-        ]
-      },
-      {
-        area: 'Monitoring & Observability',
+        area: 'Live Monitoring & Observability',
         icon: '📊',
         skills: [
-          'Prometheus metrics collection and exporters',
-          'Grafana dashboards for real-time system visualization',
-          'Custom application metrics and business KPIs',
-          'AWS CloudWatch integration for cloud-native monitoring',
-          'Alerting rules and incident response automation'
-        ]
-      },
-      {
-        area: 'Cloud Architecture (AWS)',
-        icon: '☁️',
-        skills: [
-          'ECS Fargate for serverless container orchestration',
-          'RDS PostgreSQL with automated backups and multi-AZ',
-          'Application Load Balancer with health checks and SSL/TLS',
-          'VPC design with public/private subnets and NAT gateways',
-          'CloudWatch Logs aggregation and log analytics'
+          'LGTM Stack (Loki, Grafana, Tempo, Mimir) implementation',
+          'Real-time metrics collection and visualization',
+          'Custom dashboards with live data streaming',
+          'Log aggregation and real-time log analysis',
+          'Performance monitoring and alerting systems'
         ]
       }
     ],
@@ -104,7 +114,7 @@ const Dashboard: React.FC = () => {
       { icon: '🐳', title: 'Container Optimization', value: '120MB', desc: 'Multi-stage Docker builds, 60% size reduction' },
       { icon: '🏗️', title: 'IaC Automation', value: '100%', desc: 'Full AWS stack provisioned via Terraform' },
       { icon: '🔄', title: 'CI/CD Pipeline', value: '< 5min', desc: 'Automated test, build, and deploy cycle' },
-      { icon: '📊', title: 'Prometheus Metrics', value: '50+', desc: 'Custom application and infrastructure metrics' },
+      { icon: '📊', title: 'Live Metrics', value: '50+', desc: 'Real-time LGTM stack monitoring' },
       { icon: '☁️', title: 'AWS Services', value: '12+', desc: 'ECS, RDS, ALB, CloudWatch, ECR, VPC...' },
       { icon: '🔒', title: 'Security Scan', value: 'A+', desc: 'Zero critical vulnerabilities in containers' }
     ]
@@ -113,15 +123,30 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     fetchData();
     setTimeout(() => setIsVisible(true), 100);
-    animateMetrics();
+    startMetricsCollection();
   }, []);
 
+  // Helper functions
+  const extractService = (message: string): string => {
+    if (message.includes('frontend') || message.includes('react')) return 'frontend';
+    if (message.includes('backend') || message.includes('api')) return 'backend';
+    if (message.includes('database') || message.includes('postgres')) return 'database';
+    if (message.includes('nginx') || message.includes('proxy')) return 'nginx';
+    return 'unknown';
+  };
+  
+  const extractLogLevel = (message: string): 'INFO' | 'WARN' | 'ERROR' | 'DEBUG' => {
+    if (message.includes('ERROR') || message.includes('error')) return 'ERROR';
+    if (message.includes('WARN') || message.includes('warning')) return 'WARN';
+    if (message.includes('DEBUG') || message.includes('debug')) return 'DEBUG';
+    return 'INFO';
+  };
+
+  // Fetch initial health data
   const fetchData = async () => {
     try {
       setLoading(true);
       setError(null);
-  
-      // Call getHealth without arguments
       const healthData = await ApiService.getHealth();
       setHealth(healthData);
     } catch (err) {
@@ -132,24 +157,204 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const animateMetrics = () => {
-    let requests = 0;
-    let uptime = 0;
-    let connections = 0;
-    let deployments = 0;
-    let performance = 0;
+  // Fetch real metrics from Grafana/Prometheus
+  const startMetricsCollection = () => {
+    const interval = setInterval(async () => {
+      try {
+        // Fetch real Prometheus metrics
+        const prometheusMetrics = await ApiService.getPrometheusMetrics();
+        
+        // Parse Prometheus response
+        const httpRequests = prometheusMetrics.data?.result?.find((r: any) => r.metric.__name__ === 'http_requests_total');
+        const requestDuration = prometheusMetrics.data?.result?.find((r: any) => r.metric.__name__ === 'http_request_duration_seconds');
+        
+        // Extract values from Prometheus format
+        const requestsValue = httpRequests?.value?.[1] ? parseFloat(httpRequests.value[1]) : 0;
+        const responseTimeValue = requestDuration?.value?.[1] ? parseFloat(requestDuration.value[1]) * 1000 : 0; // Convert to ms
+        
+        setCurrentMetrics(prev => ({
+          ...prev,
+          requests: requestsValue || prev.requests,
+          responseTime: responseTimeValue || prev.responseTime,
+          cpuUsage: prev.cpuUsage, // Will be updated from backend metrics
+          memoryUsage: prev.memoryUsage,
+          errorRate: prev.errorRate,
+          connections: prev.connections,
+          performance: Math.floor(100 - prev.errorRate),
+          uptime: prev.uptime + 3, // 3 seconds per interval
+          deployments: prev.deployments
+        }));
+
+        // Update chart data with real metrics
+        const newMetric: LiveMetrics = {
+          timestamp: Date.now(),
+          requests: requestsValue || 0,
+          responseTime: responseTimeValue || 0,
+          cpuUsage: currentMetrics.cpuUsage,
+          memoryUsage: currentMetrics.memoryUsage,
+          activeConnections: currentMetrics.connections,
+          errorRate: currentMetrics.errorRate
+        };
+
+        setLiveMetrics(prev => [...prev, newMetric].slice(-50));
+
+        // Fetch logs from Loki
+        const lokiLogs = await ApiService.getLokiLogs(10);
+        if (lokiLogs.data?.result) {
+          const newLogs = lokiLogs.data.result.flatMap((stream: any) => 
+            (stream.values || []).map(([timestamp, message]: [string, string]) => ({
+              timestamp: new Date(parseInt(timestamp) / 1000000).toISOString(),
+              level: extractLogLevel(message),
+              message: message,
+              service: extractService(message)
+            }))
+          );
+          
+          if (newLogs.length > 0) {
+            setRealtimeLogs(prev => [...newLogs.reverse(), ...prev].slice(0, 100));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch real metrics from Grafana:', error);
+        // Don't update metrics on error - keep showing last known good values
+      }
+    }, 5000); // Update every 5 seconds
+
+    return () => clearInterval(interval);
+  };
+
+  // Draw live chart
+  useEffect(() => {
+    if (!canvasRef.current || liveMetrics.length === 0) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Chart settings
+    const padding = 40;
+    const chartWidth = canvas.width - 2 * padding;
+    const chartHeight = canvas.height - 2 * padding;
+
+    // Draw grid
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i <= 10; i++) {
+      const y = padding + (chartHeight / 10) * i;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(padding + chartWidth, y);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i <= 10; i++) {
+      const x = padding + (chartWidth / 10) * i;
+      ctx.beginPath();
+      ctx.moveTo(x, padding);
+      ctx.lineTo(x, padding + chartHeight);
+      ctx.stroke();
+    }
+
+    // Draw response time line
+    if (liveMetrics.length > 1) {
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      liveMetrics.forEach((metric, index) => {
+        const x = padding + (chartWidth / (liveMetrics.length - 1)) * index;
+        const y = padding + chartHeight - (metric.responseTime / 300) * chartHeight;
+        
+        if (index === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+
+      ctx.stroke();
+    }
+
+    // Draw CPU usage line
+    if (liveMetrics.length > 1) {
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      liveMetrics.forEach((metric, index) => {
+        const x = padding + (chartWidth / (liveMetrics.length - 1)) * index;
+        const y = padding + chartHeight - (metric.cpuUsage / 100) * chartHeight;
+        
+        if (index === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+
+      ctx.stroke();
+    }
+
+    // Labels
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px Inter';
+    ctx.fillText('Response Time', padding, padding - 10);
+    ctx.fillStyle = '#10b981';
+    ctx.fillText('Response Time (ms)', padding + 150, padding - 10);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillText('CPU Usage (%)', padding + 300, padding - 10);
+
+  }, [liveMetrics]);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = 0;
+    }
+  }, [realtimeLogs]);
+
+  // Enhanced demo button click handler
+  const handleDemoClick = (demoType: string) => {
+    setShowLiveDemo(true);
     
-    const interval = setInterval(() => {
-      requests += Math.floor(Math.random() * 50) + 10;
-      uptime += 1;
-      connections = Math.floor(Math.random() * 20) + 5;
-      deployments = Math.min(deployments + Math.floor(Math.random() * 2), 25);
-      performance = Math.min(performance + Math.floor(Math.random() * 5), 98);
-      
-      setMetricsCount({ requests, uptime, connections, deployments, performance });
-      
-      if (requests > 1000) clearInterval(interval);
-    }, 100);
+    switch (demoType) {
+      case 'grafana':
+        // Open Grafana dashboard
+        window.open('http://localhost:3002', '_blank');
+        break;
+      case 'prometheus':
+        // Open Prometheus
+        window.open('http://localhost:9090', '_blank');
+        break;
+      case 'metrics':
+        // Scroll to live metrics section
+        document.getElementById('live-metrics-section')?.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'center'
+        });
+        break;
+      case 'monitoring':
+        // Scroll to monitoring section
+        document.getElementById('live-monitoring-section')?.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'center'
+        });
+        break;
+      case 'code':
+        // Open GitHub repo
+        window.open('https://github.com/ieric0228/Containerized-3-Tier-Application', '_blank');
+        break;
+      case 'demo':
+        // Show demo overlay or redirect to live demo
+        alert('🚀 Live Demo Features:\n\n• Real-time metrics updating every 2 seconds\n• Live application logs streaming\n• Interactive performance charts\n• Grafana dashboard integration\n• System health monitoring\n\nClick "View Grafana" to see the full monitoring stack!');
+        break;
+      default:
+        console.log('Demo type:', demoType);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -158,6 +363,16 @@ const Dashboard: React.FC = () => {
 
   const getStatusIcon = (status: string) => {
     return status === 'healthy' ? '🟢' : '🔴';
+  };
+
+  const getLogLevelColor = (level: string) => {
+    switch (level) {
+      case 'ERROR': return '#ef4444';
+      case 'WARN': return '#f59e0b';
+      case 'INFO': return '#10b981';
+      case 'DEBUG': return '#6b7280';
+      default: return '#ffffff';
+    }
   };
 
   if (loading) {
@@ -174,6 +389,7 @@ const Dashboard: React.FC = () => {
             <div className="step active">🌐 Loading Frontend Architecture</div>
             <div className="step active">🔧 Connecting Backend Services</div>
             <div className="step active">🗄️ Establishing Database Connection</div>
+            <div className="step active">📊 Starting Live Metrics Collection</div>
           </div>
         </div>
       </div>
@@ -192,6 +408,7 @@ const Dashboard: React.FC = () => {
             <ul>
               <li>Backend service health check</li>
               <li>Database connectivity status</li>
+              <li>LGTM stack monitoring services</li>
               <li>Network configuration validation</li>
               <li>Security group permissions</li>
             </ul>
@@ -231,27 +448,27 @@ const Dashboard: React.FC = () => {
         </div>
       </header>
 
-      {/* Real-time Metrics */}
-      <div className="metrics-bar fade-in-up delay-1">
-        <div className="metric">
-          <span className="metric-value">{metricsCount.requests.toLocaleString()}</span>
-          <span className="metric-label">API Requests</span>
+      {/* Real-time Metrics from Grafana/Prometheus */}
+      <div className="metrics-bar fade-in-up delay-1" id="live-metrics-section">
+        <div className="metric live-metric">
+          <span className="metric-value animate-number">{currentMetrics.requests.toLocaleString()}</span>
+          <span className="metric-label">Total Requests</span>
+          <div className="metric-trend positive">↗ From Prometheus</div>
         </div>
-        <div className="metric">
-          <span className="metric-value">{metricsCount.uptime}s</span>
+        <div className="metric live-metric">
+          <span className="metric-value animate-number">{currentMetrics.responseTime.toFixed(0)}ms</span>
+          <span className="metric-label">Response Time</span>
+          <div className="metric-trend neutral">~ Live Data</div>
+        </div>
+        <div className="metric live-metric">
+          <span className="metric-value animate-number">{Math.floor(currentMetrics.uptime / 60)}m</span>
           <span className="metric-label">Uptime</span>
+          <div className="metric-trend positive">↗ Monitoring</div>
         </div>
-        <div className="metric">
-          <span className="metric-value">{metricsCount.connections}</span>
-          <span className="metric-label">Active Connections</span>
-        </div>
-        <div className="metric">
-          <span className="metric-value">{metricsCount.deployments}</span>
-          <span className="metric-label">Deployments</span>
-        </div>
-        <div className="metric">
-          <span className="metric-value">{metricsCount.performance}%</span>
-          <span className="metric-label">Performance</span>
+        <div className="metric live-metric">
+          <span className="metric-value animate-number">{currentMetrics.errorRate.toFixed(2)}%</span>
+          <span className="metric-label">Error Rate</span>
+          <div className="metric-trend positive">↓ Grafana</div>
         </div>
       </div>
 
@@ -301,7 +518,7 @@ const Dashboard: React.FC = () => {
                   style={{ color: getStatusColor(health.database === 'connected' ? 'healthy' : 'unhealthy') }}
                 >
                   {getStatusIcon(health.database === 'connected' ? 'healthy' : 'unhealthy')} 
-                  {health.database.toUpperCase()}
+                  {(health.database || 'disconnected').toUpperCase()}
                 </div>
                 <div className="health-detail">PostgreSQL • Port 5432</div>
               </div>
@@ -310,7 +527,119 @@ const Dashboard: React.FC = () => {
         )}
       </div>
 
-      {/* Architecture Visualization */}
+      {/* Live Monitoring Dashboard */}
+      <div className="live-monitoring-section fade-in-up delay-2" id="live-monitoring-section">
+        <h2 className="section-title">
+          <span className="icon">📊</span>
+          Live Monitoring Dashboard
+          <div className="live-indicator">
+            <span className="pulse-dot"></span>
+            STREAMING
+          </div>
+          <button 
+            className="demo-button"
+            onClick={() => handleDemoClick('grafana')}
+          >
+            🚀 View Grafana
+          </button>
+        </h2>
+        
+        <div className="monitoring-grid">
+          {/* Live Chart */}
+          <div className="chart-container">
+            <h3>📈 Real-time Performance Metrics</h3>
+            <canvas 
+              ref={canvasRef} 
+              width={600} 
+              height={300}
+              className="live-chart"
+            />
+            <div className="chart-legend">
+              <span className="legend-item">
+                <div className="legend-color" style={{backgroundColor: '#10b981'}}></div>
+                Response Time (ms)
+              </span>
+              <span className="legend-item">
+                <div className="legend-color" style={{backgroundColor: '#f59e0b'}}></div>
+                CPU Usage (%)
+              </span>
+            </div>
+          </div>
+
+          {/* Live Logs */}
+          <div className="logs-container">
+            <h3>📝 Live Application Logs</h3>
+            <div className="log-stream" ref={logContainerRef}>
+              {realtimeLogs.length > 0 ? (
+                realtimeLogs.map((log, index) => {
+                  // Safe defaults to prevent undefined errors
+                  const logLevel = log.level || 'INFO';
+                  const logService = log.service || 'unknown';
+                  const logMessage = log.message || '';
+                  const logTimestamp = log.timestamp || new Date().toISOString();
+                  
+                  return (
+                    <div key={index} className={`log-entry log-${logLevel.toLowerCase()}`}>
+                      <span className="log-timestamp">{new Date(logTimestamp).toLocaleTimeString()}</span>
+                      <span className="log-service">[{logService}]</span>
+                      <span 
+                        className="log-level"
+                        style={{ color: getLogLevelColor(logLevel) }}
+                      >
+                        {logLevel.toUpperCase()}
+                      </span>
+                      <span className="log-message">{logMessage}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="no-logs">Waiting for log data from Loki...</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* System Status Cards */}
+        <div className="status-cards-grid">
+          <div className="status-card">
+            <div className="status-icon">🌐</div>
+            <div className="status-info">
+              <h4>Prometheus</h4>
+              <div className="status-value healthy">Active</div>
+              <div className="status-detail">Metrics Collection</div>
+            </div>
+          </div>
+          
+          <div className="status-card">
+            <div className="status-icon">🗄️</div>
+            <div className="status-info">
+              <h4>Loki</h4>
+              <div className="status-value healthy">Active</div>
+              <div className="status-detail">Log Aggregation</div>
+            </div>
+          </div>
+          
+          <div className="status-card">
+            <div className="status-icon">🔧</div>
+            <div className="status-info">
+              <h4>Grafana</h4>
+              <div className="status-value healthy">Active</div>
+              <div className="status-detail">Visualization</div>
+            </div>
+          </div>
+          
+          <div className="status-card">
+            <div className="status-icon">⚡</div>
+            <div className="status-info">
+              <h4>Backend</h4>
+              <div className="status-value healthy">{currentMetrics.requests}</div>
+              <div className="status-detail">Total Requests</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* System Health Monitor */}
       <div className="architecture-section fade-in-up delay-3">
         <h2 className="section-title">
           <span className="icon">🗺️</span>
@@ -621,12 +950,12 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Technical Achievements */}
-      <div className="users-section fade-in-up delay-7">
+{/* Technical Achievements with Working Demo Buttons */}
+<div className="users-section fade-in-up delay-7">
         <h2 className="section-title">
           <span className="icon">🏆</span>
           Technical Achievements
-          <span className="record-count">Production Ready</span>
+          <span className="record-count">Live Demo Ready</span>
         </h2>
         
         <div className="users-grid">
@@ -648,8 +977,28 @@ const Dashboard: React.FC = () => {
                 <p>{achievement.desc}</p>
               </div>
               <div className="user-actions">
-                <button className="action-btn">View Code</button>
-                <button className="action-btn secondary">Demo</button>
+                <button 
+                  className="action-btn"
+                  onClick={() => handleDemoClick('code')}
+                >
+                  View Code
+                </button>
+                <button 
+                  className="action-btn demo-btn"
+                  onClick={() => {
+                    if (achievement.title.includes('Container')) {
+                      handleDemoClick('code');
+                    } else if (achievement.title.includes('Metrics') || achievement.title.includes('Live')) {
+                      handleDemoClick('grafana');
+                    } else if (achievement.title.includes('CI/CD')) {
+                      handleDemoClick('code');
+                    } else {
+                      handleDemoClick('demo');
+                    }
+                  }}
+                >
+                  🚀 Live Demo
+                </button>
               </div>
             </div>
           ))}
