@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import axios from 'axios';
 import { DatabaseConnection } from './config/database';
 import promClient from 'prom-client';
+import logger from './config/logger';
 
 // Load environment variables
 dotenv.config();
@@ -59,11 +60,20 @@ app.use(helmet());
 app.use(cors());
 app.use(compression());
 
-// Rate limiting
+// Rate limiting - more permissive for dashboard
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Too many requests from this IP'
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 200, // Increased from 100 to 200 requests per minute
+  message: 'Too many requests from this IP',
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip rate limiting for metrics endpoints
+  skip: (req) => {
+    return req.path === '/metrics' || 
+           req.path === '/api/health' || 
+           req.path.startsWith('/api/prometheus') || 
+           req.path.startsWith('/api/loki');
+  }
 });
 app.use(limiter);
 
@@ -72,9 +82,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  const dbHealthy = await db.testConnection();
+  
   res.json({
-    status: 'healthy',
+    status: dbHealthy ? 'healthy' : 'unhealthy',
+    database: dbHealthy ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development'
@@ -173,13 +186,16 @@ app.get('/health', async (req, res) => {
 // API route with database
 app.get('/api/users', async (req, res) => {
   try {
+    logger.info('Fetching users from database');
     const users = await db.getUsers();
+    logger.info(`Retrieved ${users.length} users`);
     res.json({
       success: true,
       data: users,
       count: users.length
     });
   } catch (error) {
+    logger.error('Database error:', error);
     console.error('Database error:', error);
     res.status(500).json({
       success: false,

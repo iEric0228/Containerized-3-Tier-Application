@@ -17,5 +17,6 @@ export interface HealthCheck {
     database: string;
     timestamp: string;
     uptime: number;
+    environment?: string;
   }
   

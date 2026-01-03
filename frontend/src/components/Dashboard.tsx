@@ -123,7 +123,29 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     fetchData();
     setTimeout(() => setIsVisible(true), 100);
-    startMetricsCollection();
+    
+    // Initialize with some data points so the chart renders immediately
+    const initialMetrics: LiveMetrics[] = Array.from({ length: 10 }, (_, i) => ({
+      timestamp: Date.now() - (10 - i) * 10000,
+      requests: 0,
+      responseTime: 0,
+      cpuUsage: 0,
+      memoryUsage: 0,
+      activeConnections: 0,
+      errorRate: 0
+    }));
+    setLiveMetrics(initialMetrics);
+    
+    // Fetch health data every 30 seconds
+    const healthInterval = setInterval(fetchData, 30000);
+    
+    // Start collecting real metrics
+    const cleanup = startMetricsCollection();
+    
+    return () => {
+      clearInterval(healthInterval);
+      cleanup();
+    };
   }, []);
 
   // Helper functions
@@ -148,10 +170,19 @@ const Dashboard: React.FC = () => {
       setLoading(true);
       setError(null);
       const healthData = await ApiService.getHealth();
+      console.log('🏥 Health data received:', healthData);
       setHealth(healthData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to connect to backend API');
-      console.error('API Error:', err);
+      // Set a default health object even if API fails
+      console.error('❌ Health check failed:', err);
+      setHealth({
+        status: 'unknown',
+        database: 'disconnected',
+        timestamp: new Date().toISOString(),
+        uptime: 0,
+        environment: 'development'
+      });
+      console.warn('Health check failed, using default values:', err);
     } finally {
       setLoading(false);
     }
@@ -164,24 +195,40 @@ const Dashboard: React.FC = () => {
         // Fetch real Prometheus metrics
         const prometheusMetrics = await ApiService.getPrometheusMetrics();
         
-        // Parse Prometheus response
-        const httpRequests = prometheusMetrics.data?.result?.find((r: any) => r.metric.__name__ === 'http_requests_total');
-        const requestDuration = prometheusMetrics.data?.result?.find((r: any) => r.metric.__name__ === 'http_request_duration_seconds');
+        console.log('📊 Raw Prometheus data:', prometheusMetrics);
+        
+        // Parse Prometheus response - handle both formats
+        const results = prometheusMetrics.data?.result || prometheusMetrics?.result || [];
+        
+        console.log('📈 Parsed results:', results);
+        
+        const httpRequests = results.find((r: any) => 
+          r.metric?.__name__ === 'http_requests_total' || r.metric?.name === 'http_requests_total'
+        );
+        const requestDuration = results.find((r: any) => 
+          r.metric?.__name__ === 'http_request_duration_seconds_sum' || 
+          r.metric?.name === 'http_request_duration_seconds_sum'
+        );
+        
+        console.log('🔍 Found httpRequests:', httpRequests);
+        console.log('🔍 Found requestDuration:', requestDuration);
         
         // Extract values from Prometheus format
         const requestsValue = httpRequests?.value?.[1] ? parseFloat(httpRequests.value[1]) : 0;
         const responseTimeValue = requestDuration?.value?.[1] ? parseFloat(requestDuration.value[1]) * 1000 : 0; // Convert to ms
         
+        console.log('✅ Extracted values - Requests:', requestsValue, 'Response Time:', responseTimeValue);
+        
         setCurrentMetrics(prev => ({
           ...prev,
           requests: requestsValue || prev.requests,
           responseTime: responseTimeValue || prev.responseTime,
-          cpuUsage: prev.cpuUsage, // Will be updated from backend metrics
+          cpuUsage: prev.cpuUsage,
           memoryUsage: prev.memoryUsage,
           errorRate: prev.errorRate,
           connections: prev.connections,
           performance: Math.floor(100 - prev.errorRate),
-          uptime: prev.uptime + 3, // 3 seconds per interval
+          uptime: prev.uptime + 10, // 10 seconds per interval
           deployments: prev.deployments
         }));
 
@@ -200,6 +247,8 @@ const Dashboard: React.FC = () => {
 
         // Fetch logs from Loki
         const lokiLogs = await ApiService.getLokiLogs(10);
+        console.log('📝 Loki logs:', lokiLogs);
+        
         if (lokiLogs.data?.result) {
           const newLogs = lokiLogs.data.result.flatMap((stream: any) => 
             (stream.values || []).map(([timestamp, message]: [string, string]) => ({
@@ -210,6 +259,8 @@ const Dashboard: React.FC = () => {
             }))
           );
           
+          console.log('📋 Processed logs:', newLogs);
+          
           if (newLogs.length > 0) {
             setRealtimeLogs(prev => [...newLogs.reverse(), ...prev].slice(0, 100));
           }
@@ -218,7 +269,7 @@ const Dashboard: React.FC = () => {
         console.error('Failed to fetch real metrics from Grafana:', error);
         // Don't update metrics on error - keep showing last known good values
       }
-    }, 5000); // Update every 5 seconds
+    }, 10000); // Update every 10 seconds (reduced from 5 seconds to avoid rate limiting)
 
     return () => clearInterval(interval);
   };
@@ -235,7 +286,7 @@ const Dashboard: React.FC = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Chart settings
-    const padding = 40;
+    const padding = 50;
     const chartWidth = canvas.width - 2 * padding;
     const chartHeight = canvas.height - 2 * padding;
 
@@ -249,6 +300,17 @@ const Dashboard: React.FC = () => {
       ctx.moveTo(padding, y);
       ctx.lineTo(padding + chartWidth, y);
       ctx.stroke();
+      
+      // Y-axis labels (right side - response time in ms)
+      ctx.fillStyle = '#10b981';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${Math.round(300 - (i * 30))}ms`, padding - 5, y + 3);
+      
+      // Y-axis labels (left side - CPU percentage)
+      ctx.fillStyle = '#f59e0b';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${100 - (i * 10)}%`, padding + chartWidth + 5, y + 3);
     }
 
     for (let i = 0; i <= 10; i++) {
@@ -257,23 +319,41 @@ const Dashboard: React.FC = () => {
       ctx.moveTo(x, padding);
       ctx.lineTo(x, padding + chartHeight);
       ctx.stroke();
+      
+      // X-axis time labels
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      const secondsAgo = (10 - i) * 10;
+      ctx.fillText(`-${secondsAgo}s`, x, padding + chartHeight + 15);
     }
+
+    // Find max values for scaling
+    const maxResponseTime = Math.max(...liveMetrics.map(m => m.responseTime), 100);
+    const maxCpu = Math.max(...liveMetrics.map(m => m.cpuUsage), 50);
 
     // Draw response time line
     if (liveMetrics.length > 1) {
       ctx.strokeStyle = '#10b981';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       ctx.beginPath();
 
       liveMetrics.forEach((metric, index) => {
         const x = padding + (chartWidth / (liveMetrics.length - 1)) * index;
-        const y = padding + chartHeight - (metric.responseTime / 300) * chartHeight;
+        const normalizedValue = Math.min(metric.responseTime / maxResponseTime, 1);
+        const y = padding + chartHeight - (normalizedValue * chartHeight);
         
         if (index === 0) {
           ctx.moveTo(x, y);
         } else {
           ctx.lineTo(x, y);
         }
+        
+        // Draw data point
+        ctx.fillStyle = '#10b981';
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
       });
 
       ctx.stroke();
@@ -282,31 +362,43 @@ const Dashboard: React.FC = () => {
     // Draw CPU usage line
     if (liveMetrics.length > 1) {
       ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       ctx.beginPath();
 
       liveMetrics.forEach((metric, index) => {
         const x = padding + (chartWidth / (liveMetrics.length - 1)) * index;
-        const y = padding + chartHeight - (metric.cpuUsage / 100) * chartHeight;
+        const normalizedValue = Math.min(metric.cpuUsage / 100, 1);
+        const y = padding + chartHeight - (normalizedValue * chartHeight);
         
         if (index === 0) {
           ctx.moveTo(x, y);
         } else {
           ctx.lineTo(x, y);
         }
+        
+        // Draw data point
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
       });
 
       ctx.stroke();
     }
 
-    // Labels
+    // Chart title and current values
     ctx.fillStyle = '#ffffff';
-    ctx.font = '12px Inter';
-    ctx.fillText('Response Time', padding, padding - 10);
+    ctx.font = 'bold 14px Inter';
+    ctx.textAlign = 'left';
+    ctx.fillText('Real-time Performance Metrics', padding, padding - 25);
+    
+    // Current values display
+    const latestMetric = liveMetrics[liveMetrics.length - 1];
+    ctx.font = '12px monospace';
     ctx.fillStyle = '#10b981';
-    ctx.fillText('Response Time (ms)', padding + 150, padding - 10);
+    ctx.fillText(`Response Time: ${latestMetric.responseTime.toFixed(1)}ms`, padding, padding - 10);
     ctx.fillStyle = '#f59e0b';
-    ctx.fillText('CPU Usage (%)', padding + 300, padding - 10);
+    ctx.fillText(`CPU: ${latestMetric.cpuUsage.toFixed(1)}%`, padding + 200, padding - 10);
 
   }, [liveMetrics]);
 
