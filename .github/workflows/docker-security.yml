@@ -78,7 +78,7 @@ jobs:
         uses: docker/scout-action@v1
         with:
           command: cves
-          image: ${{ steps.meta.outputs.tags }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           only-severities: critical,high
           exit-code: true
         continue-on-error: true
@@ -87,7 +87,7 @@ jobs:
         uses: docker/scout-action@v1
         with:
           command: sbom
-          image: ${{ steps.meta.outputs.tags }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           output: sbom-${{ matrix.component }}.json
 
       - name: Upload SBOM artifact
@@ -102,8 +102,8 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           command: compare
-          image: ${{ steps.meta.outputs.tags }}
-          to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.component }}:latest
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           exit-code: false
 
       - name: Push Docker image (on main branch)
