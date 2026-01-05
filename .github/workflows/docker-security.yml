@@ -27,11 +27,7 @@ jobs:
 
     env:
       REGISTRY: docker.io
-      IMAGE_NAME: |
-        ${{
-          matrix.component == 'frontend' && 'iericchiu0228/containerized-3-tier-application-frontend' ||
-          matrix.component == 'backend' && 'iericchiu0228/containerized-3-tier-application-backend'
-        }}
+      IMAGE_NAME: iericchiu0228/containerized-3-tier-application-${{ matrix.component }}
       SHA: ${{ github.event.pull_request.head.sha || github.event.after }}
 
     steps:
