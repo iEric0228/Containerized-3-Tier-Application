@@ -108,9 +108,14 @@ app.get('/metrics', async (req, res) => {
     res.set('Content-Type', promClient.register.contentType);
     const metrics = await promClient.register.metrics();
     res.end(metrics);
-  } catch (error) {
-    console.error('Error serving metrics:', error);
-    res.status(500).end('Error generating metrics');
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error('Error serving metrics:', error.message);
+      res.status(500).end('Error generating metrics');
+    } else {
+      console.error('Unknown error occurred while serving metrics:', error);
+      res.status(500).end('Unknown error occurred');
+    }
   }
 });
 
@@ -126,10 +131,15 @@ app.get('/api/prometheus/query', async (req, res) => {
     
     console.log('✅ Prometheus response:', JSON.stringify(response.data, null, 2));
     res.json(response.data);
-  } catch (error: any) {
-    console.error('❌ Prometheus proxy error:', error.message);
-    console.error('Error details:', error.response?.data);
-    res.status(500).json({ error: 'Failed to query Prometheus' });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error('❌ Prometheus proxy error:', error.message);
+      console.error('Error details:', (error as any).response?.data);
+      res.status(500).json({ error: 'Failed to query Prometheus' });
+    } else {
+      console.error('❌ Prometheus proxy error:', error);
+      res.status(500).json({ error: 'Unknown error occurred' });
+    }
   }
 });
 
@@ -159,13 +169,18 @@ app.get('/api/loki/query_range', async (req, res) => {
       }
     });
     res.json(response.data);
-  } catch (error: any) {
-    console.error('Loki proxy error:', error.message);
-    console.error('Loki error details:', error.response?.data);
-    res.status(500).json({ 
-      error: 'Failed to query Loki',
-      details: error.response?.data || error.message 
-    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error('Loki proxy error:', error.message);
+      console.error('Loki error details:', (error as any).response?.data);
+      res.status(500).json({ 
+        error: 'Failed to query Loki',
+        details: (error as any).response?.data || error.message 
+      });
+    } else {
+      console.error('Loki proxy error:', error);
+      res.status(500).json({ error: 'Unknown error occurred' });
+    }
   }
 });
 
@@ -193,13 +208,22 @@ app.get('/api/users', async (req, res) => {
       data: users,
       count: users.length
     });
-  } catch (error) {
-    logger.error('Database error:', error);
-    console.error('Database error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch users'
-    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      logger.error('Database error:', error.message);
+      console.error('Database error:', error.message);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch users'
+      });
+    } else {
+      logger.error('Unknown database error:', error);
+      console.error('Unknown database error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Unknown error occurred'
+      });
+    }
   }
 });
 
