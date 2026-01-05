@@ -50,16 +50,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'npm'
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
 
       # Backend Tests (Parallel)
       - name: Install & Test Backend
         working-directory: backend
         run: |
-          npm ci --only=dev
+          npm ci
           npm run lint
           npm test
         env:
@@ -69,7 +65,7 @@ jobs:
       - name: Install & Test Frontend
         working-directory: frontend
         run: |
-          npm ci --only=dev
+          npm ci
           npm test -- --watch=false --coverage
         env:
           CI: true
