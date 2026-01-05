@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import { register, collectDefaultMetrics, Counter } from 'prom-client';
+import { collectDefaultMetrics, Counter } from 'prom-client';
 import dotenv from 'dotenv';
 import axios from 'axios';
 import { DatabaseConnection } from './config/database';
@@ -38,7 +38,6 @@ app.use((req, res, next) => {
   
   res.on('finish', () => {
     const duration = (Date.now() - start) / 1000;
-    const route = (req as any).route?.path || req.path;
     // Remove the duplicate increment
     // httpRequestCounter.labels(req.method, route, String(res.statusCode)).inc();
     httpRequestDuration
