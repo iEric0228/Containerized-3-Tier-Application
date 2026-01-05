@@ -1,6 +1,9 @@
 # Multi-stage build for production optimization
 # Stage 1: Build stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
+
+# Install security updates for Alpine packages
+RUN apk upgrade --no-cache
 
 # Set working directory
 WORKDIR /app
@@ -19,10 +22,11 @@ COPY src/ ./src/
 RUN npm run build
 
 # Stage 2: Production stage
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production
 
-# Install curl for health checks (BEFORE switching to non-root user)
-RUN apk add --no-cache curl
+# Install security updates for Alpine packages and curl for health checks
+RUN apk upgrade --no-cache && \
+    apk add --no-cache curl
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
