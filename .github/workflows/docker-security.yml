@@ -57,7 +57,8 @@ jobs:
             org.opencontainers.image.revision=${{ env.SHA }}
             org.opencontainers.image.source=${{ github.repositoryUrl }}
           tags: |
-            type=raw,value=${{ matrix.component }}-main
+            type=raw,value=latest
+            type=raw,value=main
 
       - name: Build and Push Docker image
         id: build
@@ -66,9 +67,7 @@ jobs:
           context: ./${{ matrix.component }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.component }}-main
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
