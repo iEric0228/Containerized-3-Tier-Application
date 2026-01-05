@@ -116,7 +116,8 @@ const Dashboard: React.FC = () => {
       { icon: '🔄', title: 'CI/CD Pipeline', value: '< 5min', desc: 'Automated test, build, and deploy cycle' },
       { icon: '📊', title: 'Live Metrics', value: '50+', desc: 'Real-time LGTM stack monitoring' },
       { icon: '☁️', title: 'AWS Services', value: '12+', desc: 'ECS, RDS, ALB, CloudWatch, ECR, VPC...' },
-      { icon: '🔒', title: 'Security Scan', value: 'A+', desc: 'Zero critical vulnerabilities in containers' }
+      { icon: '🔒', title: 'Security Scan', value: 'A+', desc: 'Zero critical vulnerabilities in containers' },
+      { icon: '🔒', title: 'Enhanced Security', value: 'Docker Scout', desc: 'Integrated vulnerability scanning, SBOM generation, and provenance verification' }
     ]
   });
 

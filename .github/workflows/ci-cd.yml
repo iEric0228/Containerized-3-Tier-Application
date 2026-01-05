@@ -162,17 +162,36 @@ jobs:
           echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
           echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
 
-      - name: Build & Push Images (Parallel)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push Images with Immutable Tags
         run: |
-          # Build both images in parallel
-          docker build --platform linux/amd64 -t "${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" ./frontend &
-          docker build --platform linux/amd64 -t "${{ steps.tf-outputs.outputs.backend_ecr }}:latest" ./backend &
+          # Use Git SHA for immutable versioning
+          IMAGE_TAG="${{ github.sha }}"
+          
+          # Build both images in parallel with multiple tags
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "${{ steps.tf-outputs.outputs.frontend_ecr }}:${IMAGE_TAG}" \
+            --tag "${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" \
+            --push \
+            --cache-from type=registry,ref=${{ steps.tf-outputs.outputs.frontend_ecr }}:latest \
+            --cache-to type=inline \
+            ./frontend &
+          
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "${{ steps.tf-outputs.outputs.backend_ecr }}:${IMAGE_TAG}" \
+            --tag "${{ steps.tf-outputs.outputs.backend_ecr }}:latest" \
+            --push \
+            --cache-from type=registry,ref=${{ steps.tf-outputs.outputs.backend_ecr }}:latest \
+            --cache-to type=inline \
+            ./backend &
+          
           wait
           
-          # Push both images in parallel
-          docker push "${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" &
-          docker push "${{ steps.tf-outputs.outputs.backend_ecr }}:latest" &
-          wait
+          echo "✅ Images built and pushed successfully with tags: ${IMAGE_TAG} and latest"
 
       - name: Force ECS Service Deployment
         run: |
@@ -304,17 +323,27 @@ jobs:
       - name: Empty ECR Repositories (Speed Up Destroy)
         continue-on-error: true
         run: |
-          echo "Emptying ECR repositories for faster destruction..."
+          echo "🗑️ Cleaning up ECR repositories..."
           
-          aws ecr batch-delete-image \
-            --repository-name dev-frontend \
-            --image-ids imageTag=latest \
-            --no-cli-pager || true
+          # List and delete all images (not just latest)
+          FRONTEND_IMAGES=$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          BACKEND_IMAGES=$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
           
-          aws ecr batch-delete-image \
-            --repository-name dev-backend \
-            --image-ids imageTag=latest \
-            --no-cli-pager || true
+          if [ "$FRONTEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image \
+              --repository-name dev-frontend \
+              --image-ids "$FRONTEND_IMAGES" \
+              --no-cli-pager || true
+          fi
+          
+          if [ "$BACKEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image \
+              --repository-name dev-backend \
+              --image-ids "$BACKEND_IMAGES" \
+              --no-cli-pager || true
+          fi
+          
+          echo "✅ ECR cleanup completed"
 
       - name: Terraform Destroy
         working-directory: terraform/environments/dev
@@ -350,13 +379,26 @@ jobs:
         working-directory: terraform/environments/dev
         run: |
           terraform init -input=false
-          terraform workspace select $TF_WORKSPACE || echo "Workspace may not exist"
+          terraform workspace select $TF_WORKSPACE || echo "⚠️ Workspace may not exist"
           
-          # Empty ECR repos first
-          aws ecr batch-delete-image --repository-name dev-frontend --image-ids imageTag=latest --no-cli-pager || true
-          aws ecr batch-delete-image --repository-name dev-backend --image-ids imageTag=latest --no-cli-pager || true
+          # Clean up ECR repos first
+          echo "🗑️ Cleaning up ECR repositories..."
           
+          FRONTEND_IMAGES=$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          BACKEND_IMAGES=$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          
+          if [ "$FRONTEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-frontend --image-ids "$FRONTEND_IMAGES" --no-cli-pager || true
+          fi
+          
+          if [ "$BACKEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-backend --image-ids "$BACKEND_IMAGES" --no-cli-pager || true
+          fi
+          
+          echo "🔥 Starting infrastructure destruction..."
           terraform destroy -auto-approve
+          
+          echo "✅ Infrastructure destroyed successfully!"
 
   summary:
     name: Pipeline Summary

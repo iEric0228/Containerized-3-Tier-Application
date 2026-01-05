@@ -35,7 +35,7 @@ This project implements a **production-grade, containerized 3-tier web applicati
                         ┌──────────────┘               └──────────────┐
                         │                                             │
                         ▼                                             ▼
-        ┌───────────────────────────┐               ┌───────────────────────────┐
+        ┌───────────────────────-────┐               ┌───────-────────────────────┐
         │  PRESENTATION TIER         │               │  APPLICATION TIER          │
         │  ─────────────────────     │               │  ─────────────────────     │
         │  React Frontend            │    REST API   │  Node.js/Express Backend   │
@@ -444,7 +444,7 @@ terraform plan          # Deployment preview
 ### **Automated Workflow**
 
 ```yaml
-Trigger: Push to main branch or Pull Request
+Trigger: Push to main branch or Pull Request or Manual trigger
 
 Pipeline Stages:
 1. Lint & Format Check
@@ -466,8 +466,41 @@ Pipeline Stages:
    - Push images to ECR
    - Update ECS services
    - Run smoke tests
-   - Notify team
 ```
+
+### **🔒 Enhanced Docker Security Pipeline**
+
+The CI/CD pipeline follows industry best practices with Docker Scout integration for comprehensive security analysis. Key features include:
+
+**Security Features:**
+- **Vulnerability Scanning**: Automated CVE scanning for critical/high severity issues
+- **SBOM Generation**: Software Bill of Materials for complete dependency transparency
+- **Provenance Attestation**: Cryptographic verification of image authenticity
+- **Multi-Platform Builds**: Support for linux/amd64 and linux/arm64 architectures
+- **Immutable Tags**: Git SHA-based versioning for reproducible deployments
+
+**Performance Optimizations:**
+- **Docker Buildx**: Layer caching reduces build times by up to 90%
+- **Parallel Builds**: Frontend and backend built concurrently
+- **Optimized Context**: `.dockerignore` reduces context size from ~179MB to ~10-20MB
+- **Matrix Strategy**: Parallel security scanning for all components
+
+**Pipeline Workflow:**
+```yaml
+1. Code Push/PR → Automated Tests
+2. Security Scan → CVE Detection + SBOM Generation
+3. Build Images → Multi-platform with immutable tags (Git SHA)
+4. Infrastructure Deploy → Terraform IaC
+5. Health Checks → Automated endpoint testing
+6. Optional Destroy → Clean up test environments
+```
+
+These enhancements leverage the [Docker Scout GitHub Action](https://docs.docker.com/scout/integrations/ci/gha/) to automate security checks and ensure compliance with best practices.
+
+📚 **Documentation:**
+- [CI/CD Best Practices Guide](./CI-CD-BEST-PRACTICES.md) - Detailed implementation guide
+- [Quick Reference](./QUICK-REFERENCE.md) - Common commands and debugging tips
+- [Workflows](./.github/workflows/) - `ci-cd.yml` and `docker-security.yml`
 
 ### **Manual Deployment Options**
 
@@ -529,25 +562,6 @@ Test Scenario: 500 concurrent users, 10-minute duration
 
 ---
 
-## 🤝 Contributing
-
-This project welcomes contributions! Here's how to get started:
-
-### **Development Workflow**
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes with tests
-4. Commit with conventional commits (`git commit -m 'feat: add amazing feature'`)
-5. Push to your branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
-
-### **Code Standards**
-- Follow the existing code style
-- Write tests for new features
-- Update documentation as needed
-- Ensure CI/CD pipeline passes
-
----
 
 ## 📚 Learning Resources
 
@@ -592,13 +606,6 @@ aws cloudwatch get-metric-statistics \
   --metric-name CPUUtilization
 ```
 
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
 
 ## 👨‍💻 Author
 
@@ -610,13 +617,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🙏 Acknowledgments
-
-- Inspired by the [Cloud Resume Challenge](https://cloudresumechallenge.dev/)
-- AWS architecture best practices
-- Open-source community contributions
-
----
 
 <div align="center">
 

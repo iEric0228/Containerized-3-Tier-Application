@@ -56,6 +56,8 @@ http {
             return 200 "healthy\n";
             add_header Content-Type text/plain;
         }
+
+        
         
         # API proxy to backend - use variable to defer DNS resolution
         location /api/ {
