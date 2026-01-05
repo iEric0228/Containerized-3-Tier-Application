@@ -126,6 +126,16 @@ jobs:
           sbom: true
           provenance: true
 
+      - name: Logout from Docker registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          logout: true
+        env:
+          REGISTRY: docker.io
+          SHA: 19056f91ddc703aa19b5c669f2d29cfa5c3bf44e
+          IMAGE_NAME: iericchiu0228/containerized-3-tier-application-frontend
+
   security-summary:
     name: Security Scan Summary
     runs-on: ubuntu-latest
