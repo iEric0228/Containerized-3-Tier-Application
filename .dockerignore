@@ -10,9 +10,11 @@ node_modules
 .gitignore
 
 # Ignore Docker-related files
-docker-compose.override.yml
 Dockerfile
 .dockerignore
+
+# Ignore package-lock.json to reduce build context size
+package-lock.json
 
 # Ignore logs and temporary files
 *.log
