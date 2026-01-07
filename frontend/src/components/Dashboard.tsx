@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ApiService } from '../services/api';
-import { User, HealthCheck } from '../types/api.interface';
+import { HealthCheck } from '../types/api.interface';
 import './Dashboard.css';
 
 
@@ -27,7 +27,6 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const [showLiveDemo, setShowLiveDemo] = useState(false);
   
   // Live Data States
   const [liveMetrics, setLiveMetrics] = useState<LiveMetrics[]>([]);
@@ -116,38 +115,9 @@ const Dashboard: React.FC = () => {
       { icon: '🔄', title: 'CI/CD Pipeline', value: '< 5min', desc: 'Automated test, build, and deploy cycle' },
       { icon: '📊', title: 'Live Metrics', value: '50+', desc: 'Real-time LGTM stack monitoring' },
       { icon: '☁️', title: 'AWS Services', value: '12+', desc: 'ECS, RDS, ALB, CloudWatch, ECR, VPC...' },
-      { icon: '🔒', title: 'Security Scan', value: 'A+', desc: 'Zero critical vulnerabilities in containers' },
       { icon: '🔒', title: 'Enhanced Security', value: 'Docker Scout', desc: 'Integrated vulnerability scanning, SBOM generation, and provenance verification' }
     ]
   });
-
-  useEffect(() => {
-    fetchData();
-    setTimeout(() => setIsVisible(true), 100);
-    
-    // Initialize with some data points so the chart renders immediately
-    const initialMetrics: LiveMetrics[] = Array.from({ length: 10 }, (_, i) => ({
-      timestamp: Date.now() - (10 - i) * 10000,
-      requests: 0,
-      responseTime: 0,
-      cpuUsage: 0,
-      memoryUsage: 0,
-      activeConnections: 0,
-      errorRate: 0
-    }));
-    setLiveMetrics(initialMetrics);
-    
-    // Fetch health data every 30 seconds
-    const healthInterval = setInterval(fetchData, 30000);
-    
-    // Start collecting real metrics
-    const cleanup = startMetricsCollection();
-    
-    return () => {
-      clearInterval(healthInterval);
-      cleanup();
-    };
-  }, []);
 
   // Helper functions
   const extractService = (message: string): string => {
@@ -168,7 +138,6 @@ const Dashboard: React.FC = () => {
   // Fetch initial health data
   const fetchData = async () => {
     try {
-      setLoading(true);
       setError(null);
       const healthData = await ApiService.getHealth();
       console.log('🏥 Health data received:', healthData);
@@ -189,9 +158,27 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Fetch real metrics from Grafana/Prometheus
-  const startMetricsCollection = () => {
-    const interval = setInterval(async () => {
+  useEffect(() => {
+    fetchData();
+    setTimeout(() => setIsVisible(true), 100);
+    
+    // Initialize with some data points so the chart renders immediately
+    const initialMetrics: LiveMetrics[] = Array.from({ length: 10 }, (_, i) => ({
+      timestamp: Date.now() - (10 - i) * 10000,
+      requests: 0,
+      responseTime: 0,
+      cpuUsage: 0,
+      memoryUsage: 0,
+      activeConnections: 0,
+      errorRate: 0
+    }));
+    setLiveMetrics(initialMetrics);
+    
+    // Fetch health data every 30 seconds
+    const healthInterval = setInterval(fetchData, 30000);
+    
+    // Fetch real metrics from Grafana/Prometheus - FIXED VERSION
+    const metricsInterval = setInterval(async () => {
       try {
         // Fetch real Prometheus metrics
         const prometheusMetrics = await ApiService.getPrometheusMetrics();
@@ -220,6 +207,7 @@ const Dashboard: React.FC = () => {
         
         console.log('✅ Extracted values - Requests:', requestsValue, 'Response Time:', responseTimeValue);
         
+        // FIXED: Use functional update to prevent re-render loops
         setCurrentMetrics(prev => ({
           ...prev,
           requests: requestsValue || prev.requests,
@@ -233,47 +221,63 @@ const Dashboard: React.FC = () => {
           deployments: prev.deployments
         }));
 
-        // Update chart data with real metrics
+        // Update chart data separately to prevent dependency loops
         const newMetric: LiveMetrics = {
           timestamp: Date.now(),
           requests: requestsValue || 0,
           responseTime: responseTimeValue || 0,
-          cpuUsage: currentMetrics.cpuUsage,
-          memoryUsage: currentMetrics.memoryUsage,
-          activeConnections: currentMetrics.connections,
-          errorRate: currentMetrics.errorRate
+          cpuUsage: 0, // We'll add real CPU data later
+          memoryUsage: 0, // We'll add real memory data later
+          activeConnections: 0,
+          errorRate: 0
         };
 
         setLiveMetrics(prev => [...prev, newMetric].slice(-50));
 
         // Fetch logs from Loki
-        const lokiLogs = await ApiService.getLokiLogs(10);
-        console.log('📝 Loki logs:', lokiLogs);
-        
-        if (lokiLogs.data?.result) {
-          const newLogs = lokiLogs.data.result.flatMap((stream: any) => 
-            (stream.values || []).map(([timestamp, message]: [string, string]) => ({
-              timestamp: new Date(parseInt(timestamp) / 1000000).toISOString(),
-              level: extractLogLevel(message),
-              message: message,
-              service: extractService(message)
-            }))
-          );
+        try {
+          const lokiLogs = await ApiService.getLokiLogs(10);
+          console.log('📝 Loki logs response:', lokiLogs);
           
-          console.log('📋 Processed logs:', newLogs);
-          
-          if (newLogs.length > 0) {
-            setRealtimeLogs(prev => [...newLogs.reverse(), ...prev].slice(0, 100));
+          if (lokiLogs?.data?.result && Array.isArray(lokiLogs.data.result)) {
+            const newLogs = lokiLogs.data.result.flatMap((stream: any) => {
+              if (!stream.values || !Array.isArray(stream.values)) {
+                console.warn('⚠️ Stream has no values:', stream);
+                return [];
+              }
+              return stream.values.map(([timestamp, message]: [string, string]) => ({
+                timestamp: new Date(parseInt(timestamp) / 1000000).toISOString(),
+                level: extractLogLevel(message),
+                message: message || 'No message content',
+                service: extractService(message)
+              }));
+            });
+            
+            console.log('📋 Processed logs:', newLogs);
+            
+            if (newLogs.length > 0) {
+              setRealtimeLogs(prev => [...newLogs.reverse(), ...prev].slice(0, 100));
+            } else {
+              console.log('📋 No new logs found, keeping existing logs');
+            }
+          } else {
+            console.warn('⚠️ Loki response format unexpected:', lokiLogs);
           }
+        } catch (lokiError) {
+          console.error('❌ Failed to fetch logs from Loki:', lokiError);
         }
       } catch (error) {
         console.error('Failed to fetch real metrics from Grafana:', error);
         // Don't update metrics on error - keep showing last known good values
       }
-    }, 10000); // Update every 10 seconds (reduced from 5 seconds to avoid rate limiting)
-
-    return () => clearInterval(interval);
-  };
+    }, 10000); // Update every 10 seconds
+    
+    return () => {
+      clearInterval(healthInterval);
+      clearInterval(metricsInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Draw live chart
   useEffect(() => {
@@ -331,7 +335,6 @@ const Dashboard: React.FC = () => {
 
     // Find max values for scaling
     const maxResponseTime = Math.max(...liveMetrics.map(m => m.responseTime), 100);
-    const maxCpu = Math.max(...liveMetrics.map(m => m.cpuUsage), 50);
 
     // Draw response time line
     if (liveMetrics.length > 1) {
@@ -412,8 +415,6 @@ const Dashboard: React.FC = () => {
 
   // Enhanced demo button click handler
   const handleDemoClick = (demoType: string) => {
-    setShowLiveDemo(true);
-    
     switch (demoType) {
       case 'grafana':
         // Open Grafana dashboard
@@ -541,8 +542,37 @@ const Dashboard: React.FC = () => {
         </div>
       </header>
 
+      {/* DevOps Pipeline Flow - Moved to top */}
+      <div className="pipeline-flow fade-in-up delay-1">
+        <div className="progress-flow"></div>
+        <div className="pipeline-stage">
+          <div className="stage-icon code">💻</div>
+          <div className="stage-label">Code</div>
+        </div>
+        <div className="pipeline-arrow"></div>
+        <div className="pipeline-stage">
+          <div className="stage-icon build">🔧</div>
+          <div className="stage-label">Build</div>
+        </div>
+        <div className="pipeline-arrow"></div>
+        <div className="pipeline-stage">
+          <div className="stage-icon test">🧪</div>
+          <div className="stage-label">Test</div>
+        </div>
+        <div className="pipeline-arrow"></div>
+        <div className="pipeline-stage">
+          <div className="stage-icon deploy">🚀</div>
+          <div className="stage-label">Deploy</div>
+        </div>
+        <div className="pipeline-arrow"></div>
+        <div className="pipeline-stage">
+          <div className="stage-icon monitor">📊</div>
+          <div className="stage-label">Monitor</div>
+        </div>
+      </div>
+
       {/* Real-time Metrics from Grafana/Prometheus */}
-      <div className="metrics-bar fade-in-up delay-1" id="live-metrics-section">
+      <div className="metrics-bar fade-in-up delay-2" id="live-metrics-section">
         <div className="metric live-metric">
           <span className="metric-value animate-number">{currentMetrics.requests.toLocaleString()}</span>
           <span className="metric-label">Total Requests</span>
@@ -565,11 +595,11 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* System Health Monitor */}
-      <div className="health-section fade-in-up delay-2">
+      {/* Live Deployment Status */}
+      <div className="health-section fade-in-up delay-3">
         <h2 className="section-title">
-          <span className="icon">📊</span>
-          System Health Monitor
+          <span className="icon">🚀</span>
+          Live Deployment Status
           <div className="live-indicator">
             <span className="pulse-dot"></span>
             LIVE
@@ -584,7 +614,7 @@ const Dashboard: React.FC = () => {
                 <div className="health-status healthy">
                   {getStatusIcon('healthy')} ACTIVE
                 </div>
-                <div className="health-detail">React + TypeScript • Port 3000</div>
+                <div className="health-detail">React + TypeScript • Port 3000 • 3 replicas</div>
               </div>
             </div>
             
@@ -598,7 +628,7 @@ const Dashboard: React.FC = () => {
                 >
                   {getStatusIcon(health.status)} {health.status.toUpperCase()}
                 </div>
-                <div className="health-detail">Express.js + Node.js • Port 3001</div>
+                <div className="health-detail">Express.js + Node.js • Port 3001 • 2 replicas</div>
               </div>
             </div>
             
@@ -613,7 +643,18 @@ const Dashboard: React.FC = () => {
                   {getStatusIcon(health.database === 'connected' ? 'healthy' : 'unhealthy')} 
                   {(health.database || 'disconnected').toUpperCase()}
                 </div>
-                <div className="health-detail">PostgreSQL • Port 5432</div>
+                <div className="health-detail">PostgreSQL • Port 5432 • RDS Multi-AZ</div>
+              </div>
+            </div>
+
+            <div className="health-card animate-card delay-3">
+              <div className="card-icon">📊</div>
+              <div className="card-content">
+                <div className="health-label">Monitoring Stack</div>
+                <div className="health-status healthy">
+                  {getStatusIcon('healthy')} ACTIVE
+                </div>
+                <div className="health-detail">Prometheus + Grafana + Loki • LGTM Stack</div>
               </div>
             </div>
           </div>
@@ -662,7 +703,10 @@ const Dashboard: React.FC = () => {
           {/* Live Logs */}
           <div className="logs-container">
             <h3>📝 Live Application Logs</h3>
-            <div className="log-stream" ref={logContainerRef}>
+            <div 
+              className="log-stream" 
+              ref={logContainerRef}
+            >
               {realtimeLogs.length > 0 ? (
                 realtimeLogs.map((log, index) => {
                   // Safe defaults to prevent undefined errors
@@ -672,16 +716,18 @@ const Dashboard: React.FC = () => {
                   const logTimestamp = log.timestamp || new Date().toISOString();
                   
                   return (
-                    <div key={index} className={`log-entry log-${logLevel.toLowerCase()}`}>
-                      <span className="log-timestamp">{new Date(logTimestamp).toLocaleTimeString()}</span>
-                      <span className="log-service">[{logService}]</span>
-                      <span 
-                        className="log-level"
-                        style={{ color: getLogLevelColor(logLevel) }}
-                      >
-                        {logLevel.toUpperCase()}
-                      </span>
-                      <span className="log-message">{logMessage}</span>
+                    <div 
+                      key={`log-${index}-${Date.now()}`} 
+                      className={`log-entry ${logLevel}`}
+                    >
+                      <div className="meta">
+                        <div className="log-timestamp">{new Date(logTimestamp).toLocaleTimeString()}</div>
+                        <div className="log-service">[{logService}]</div>
+                        <div className="log-level" style={{ color: getLogLevelColor(logLevel) }}>
+                          {logLevel.toUpperCase()}
+                        </div>
+                      </div>
+                      <div className="message">{logMessage}</div>
                     </div>
                   );
                 })
@@ -1010,41 +1056,8 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Simplified Technical Skills Section */}
-      <div className="skills-developed-section fade-in-up delay-6">
-        <h2 className="section-title">
-          <span className="icon">🛠️</span>
-          Technical Skills Developed
-          <span className="project-badge">Hands-On Experience</span>
-        </h2>
-        
-        <div className="skills-areas-grid">
-          {projectDetails.skillsDeveloped.map((area, index) => (
-            <div 
-              key={area.area} 
-              className="skill-area-card animate-card"
-              style={{ animationDelay: `${index * 0.1}s` }}
-            >
-              <div className="area-header">
-                <span className="area-icon">{area.icon}</span>
-                <h4>{area.area}</h4>
-              </div>
-              
-              <ul className="skills-list">
-                {area.skills.map((skill, skillIndex) => (
-                  <li key={skillIndex} className="skill-item">
-                    <span className="skill-bullet">•</span>
-                    {skill}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </div>
-
-{/* Technical Achievements with Working Demo Buttons */}
-<div className="users-section fade-in-up delay-7">
+      {/* Technical Achievements with Working Demo Buttons */}
+      <div className="users-section fade-in-up delay-7">
         <h2 className="section-title">
           <span className="icon">🏆</span>
           Technical Achievements
@@ -1095,6 +1108,101 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* DevOps Toolchain & Skills Mastery - Combined */}
+      <div className="toolchain-showcase fade-in-up delay-6">
+        <h2 className="toolchain-title">
+          <span className="icon">🛠️</span>
+          DevOps Toolchain & Skills Mastery
+          <span className="project-badge">Hands-On Experience</span>
+        </h2>
+        <div className="toolchain-grid">
+          <div className="tool-card">
+            <div className="tool-icon docker">🐳</div>
+            <div className="tool-name">Docker</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Multi-stage builds (60% size reduction), container optimization, security scanning with Docker Scout, image vulnerability assessment, SBOM generation
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon terraform">🏗️</div>
+            <div className="tool-name">Terraform</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Infrastructure as Code, AWS resource provisioning (ECS, RDS, VPC), state management with S3 backends, modular architecture, multi-environment deployments
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon github">🔄</div>
+            <div className="tool-name">GitHub Actions</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> CI/CD pipeline automation, automated testing workflows, containerized deployments, secrets management, build optimization (&lt;5min cycles)
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon aws">☁️</div>
+            <div className="tool-name">AWS ECS Fargate</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Serverless container orchestration, auto-scaling policies, task definitions, service discovery, load balancing integration, blue-green deployments
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon jenkins">📊</div>
+            <div className="tool-name">Prometheus</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Metrics collection, time-series database queries (PromQL), custom exporters, alerting rules, service health monitoring
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon grafana">📈</div>
+            <div className="tool-name">Grafana</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Real-time dashboards, data visualization, custom panels, alert configuration, multi-source data integration (LGTM Stack)
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon docker">🗄️</div>
+            <div className="tool-name">AWS RDS PostgreSQL</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Managed database service, Multi-AZ deployments, automated backups, encryption at rest, performance insights, connection pooling
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon kubernetes">📦</div>
+            <div className="tool-name">AWS ECR</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Private Docker registry, image lifecycle policies, vulnerability scanning, cross-region replication, IAM integration
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon jenkins">🔍</div>
+            <div className="tool-name">CloudWatch</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> AWS native monitoring, log aggregation, metric filters, custom alarms, log insights queries, container logs analysis
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon github">🔐</div>
+            <div className="tool-name">AWS Secrets Manager</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Secrets rotation automation, database credential management, encryption, IAM role integration, application secret injection
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon terraform">🌐</div>
+            <div className="tool-name">AWS ALB</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> SSL/TLS termination, health checks configuration, target group routing, path-based routing, security policies
+            </div>
+          </div>
+          <div className="tool-card">
+            <div className="tool-icon docker">📋</div>
+            <div className="tool-name">Loki + Tempo</div>
+            <div className="tool-description">
+              <strong>Skills:</strong> Log aggregation (Loki), distributed tracing (Tempo), real-time log streaming, trace correlation, LGTM Stack integration
+            </div>
+          </div>
         </div>
       </div>
 

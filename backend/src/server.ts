@@ -36,15 +36,33 @@ const httpRequestDuration = new promClient.Histogram({
 app.use((req, res, next) => {
   const start = Date.now();
   
+  // Log incoming requests
+  logger.info('📨 Incoming request', {
+    method: req.method,
+    url: req.url,
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    timestamp: new Date().toISOString()
+  });
+  
   res.on('finish', () => {
     const duration = (Date.now() - start) / 1000;
-    // Remove the duplicate increment
-    // httpRequestCounter.labels(req.method, route, String(res.statusCode)).inc();
+    const route = req.route?.path || req.path;
+    
+    // Log request completion
+    logger.info('📤 Request completed', {
+      method: req.method,
+      route: route,
+      statusCode: res.statusCode,
+      responseTime: `${duration}s`,
+      timestamp: new Date().toISOString()
+    });
+    
     httpRequestDuration
-      .labels(req.method, req.route?.path || req.path, res.statusCode.toString())
+      .labels(req.method, route, res.statusCode.toString())
       .observe(duration);
-    httpRequestCounter  // Changed from httpRequestsTotal to httpRequestCounter
-      .labels(req.method, req.route?.path || req.path, res.statusCode.toString())
+    httpRequestCounter
+      .labels(req.method, route, res.statusCode.toString())
       .inc();
   });
   
@@ -82,7 +100,30 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
+  const startTime = Date.now();
+  logger.info('Health check requested', { 
+    endpoint: '/api/health', 
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    method: req.method
+  });
+  
   const dbHealthy = await db.testConnection();
+  const responseTime = Date.now() - startTime;
+  
+  if (dbHealthy) {
+    logger.info('Health check completed successfully', { 
+      database: 'connected',
+      responseTime: `${responseTime}ms`,
+      status: 'healthy'
+    });
+  } else {
+    logger.error('Health check failed - database disconnected', { 
+      database: 'disconnected',
+      responseTime: `${responseTime}ms`,
+      status: 'unhealthy'
+    });
+  }
   
   res.json({
     status: dbHealthy ? 'healthy' : 'unhealthy',
@@ -95,11 +136,34 @@ app.get('/api/health', async (req, res) => {
 
 // Root API endpoint
 app.get('/api', (req, res) => {
-  res.json({
-    message: 'Backend API is running',
-    environment: process.env.NODE_ENV || 'development',
+  const requestStart = Date.now();
+  
+  logger.info('🔌 API root endpoint accessed', { 
+    endpoint: '/api', 
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    method: req.method,
     timestamp: new Date().toISOString()
   });
+  
+  const responseData = {
+    message: 'Backend API is running',
+    environment: process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    version: '1.0.0',
+    status: 'operational'
+  };
+  
+  const responseTime = Date.now() - requestStart;
+  
+  logger.info('✅ API root response sent', {
+    endpoint: '/api',
+    responseTime: `${responseTime}ms`,
+    statusCode: 200
+  });
+  
+  res.json(responseData);
 });
 
 // Metrics endpoint for Prometheus
@@ -152,33 +216,37 @@ app.get('/api/loki/query_range', async (req, res) => {
     const end = Date.now() * 1000000; // Current time in nanoseconds
     const start = end - (3600 * 1000000000); // 1 hour ago
     
-    const lokiQuery = query || '{job="backend"}';
+    const lokiQuery = String(query || '{job="backend"}');
     
-    const response = await axios.get('http://grafana-lgtm:3100/loki/api/v1/query_range', {
-      params: {
-        query: lokiQuery,
-        limit: limit || 100,
-        start: start,
-        end: end
-      },
-      paramsSerializer: params => {
-        // Properly encode the query parameter
-        return Object.entries(params)
-          .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
-          .join('&');
-      }
+    console.log('🔍 Loki query request:', {
+      query: lokiQuery,
+      limit: limit || 100,
+      start,
+      end
     });
+    
+    // Use URLSearchParams for proper encoding
+    const params = new URLSearchParams();
+    params.append('query', lokiQuery);
+    params.append('limit', String(limit || 100));
+    params.append('start', String(start));
+    params.append('end', String(end));
+    
+    const response = await axios.get(`http://grafana-lgtm:3100/loki/api/v1/query_range?${params.toString()}`);
+    
+    console.log('✅ Loki query successful, streams found:', response.data.data?.result?.length || 0);
+    
     res.json(response.data);
   } catch (error: unknown) {
     if (error instanceof Error) {
-      console.error('Loki proxy error:', error.message);
+      console.error('❌ Loki proxy error:', error.message);
       console.error('Loki error details:', (error as any).response?.data);
       res.status(500).json({ 
         error: 'Failed to query Loki',
         details: (error as any).response?.data || error.message 
       });
     } else {
-      console.error('Loki proxy error:', error);
+      console.error('❌ Loki proxy error:', error);
       res.status(500).json({ error: 'Unknown error occurred' });
     }
   }
@@ -238,6 +306,32 @@ app.get('/api', (req, res) => {
 // Only start server if this file is run directly (not imported)
 if (require.main === module) {
   app.listen(PORT, () => {
+    logger.info('🚀 Server startup successful', {
+      port: PORT,
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString(),
+      nodeVersion: process.version,
+      platform: process.platform
+    });
+    
+    logger.info('📊 Available endpoints', {
+      metrics: `http://localhost:${PORT}/metrics`,
+      health: `http://localhost:${PORT}/api/health`,
+      api: `http://localhost:${PORT}/api`,
+      users: `http://localhost:${PORT}/api/users`,
+      prometheus: `http://localhost:${PORT}/api/prometheus/query`,
+      loki: `http://localhost:${PORT}/api/loki/query_range`
+    });
+    
+    // Log initial system status
+    setTimeout(() => {
+      logger.info('💾 System resource status', {
+        uptime: process.uptime(),
+        memoryUsage: process.memoryUsage(),
+        cpuUsage: process.cpuUsage()
+      });
+    }, 1000);
+    
     console.log(` Server running on port ${PORT}`);
     console.log(` Metrics available at http://localhost:${PORT}/metrics`);
     console.log(` Health check at http://localhost:${PORT}/health`);

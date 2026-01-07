@@ -114,3 +114,7 @@ docker-compose.override.yml
 *.tar
 *.rar
 *.7z
+
+#UI
+.shared
+.github/prompts/
