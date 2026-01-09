@@ -50,14 +50,14 @@ jobs:
     steps:
       - name: Print Configuration
         run: |
-          echo "## Workflow Configuration" >> \$GITHUB_STEP_SUMMARY
-          echo "| Setting | Value |" >> \$GITHUB_STEP_SUMMARY
-          echo "|---------|-------|" >> \$GITHUB_STEP_SUMMARY
-          echo "| Action | \${{ github.event.inputs.action }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Keep Alive (min) | \${{ github.event.inputs.keep_alive_minutes || '0' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Skip Tests | \${{ github.event.inputs.skip_tests || 'false' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Skip Monitoring | \${{ github.event.inputs.skip_monitoring || 'false' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Force Rebuild | \${{ github.event.inputs.force_rebuild || 'false' }} |" >> \$GITHUB_STEP_SUMMARY
+          echo "## Workflow Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Action | ${{ github.event.inputs.action }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Keep Alive (min) | ${{ github.event.inputs.keep_alive_minutes || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skip Tests | ${{ github.event.inputs.skip_tests || 'false' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skip Monitoring | ${{ github.event.inputs.skip_monitoring || 'false' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Force Rebuild | ${{ github.event.inputs.force_rebuild || 'false' }} |" >> $GITHUB_STEP_SUMMARY
 
   test-and-build:
     name: Test and Build
@@ -139,10 +139,10 @@ jobs:
       github.ref == 'refs/heads/main'
 
     outputs:
-      frontend_ecr: \${{ steps.tf-outputs.outputs.frontend_ecr }}
-      backend_ecr: \${{ steps.tf-outputs.outputs.backend_ecr }}
-      cluster_name: \${{ steps.tf-outputs.outputs.cluster_name }}
-      deployment_successful: \${{ steps.deploy-check.outputs.success }}
+      frontend_ecr: ${{ steps.tf-outputs.outputs.frontend_ecr }}
+      backend_ecr: ${{ steps.tf-outputs.outputs.backend_ecr }}
+      cluster_name: ${{ steps.tf-outputs.outputs.cluster_name }}
+      deployment_successful: ${{ steps.deploy-check.outputs.success }}
 
     steps:
       - name: Checkout
@@ -152,8 +152,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::125156866057:role/github-OICD
-          role-session-name: 3tier-app-deploy-\${{ github.run_id }}
-          aws-region: \${{ env.AWS_REGION }}
+          role-session-name: 3tier-app-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -169,9 +169,9 @@ jobs:
         continue-on-error: true
         run: |
           echo "Attempting to recover any secrets scheduled for deletion..."
-          aws secretsmanager restore-secret --secret-id dev-db-password --region \$AWS_REGION 2>/dev/null && echo "Restored dev-db-password" || echo "dev-db-password not in deletion state"
-          aws secretsmanager restore-secret --secret-id dev-db-username --region \$AWS_REGION 2>/dev/null && echo "Restored dev-db-username" || echo "dev-db-username not in deletion state"
-          aws secretsmanager restore-secret --secret-id dev-grafana-admin-password --region \$AWS_REGION 2>/dev/null && echo "Restored dev-grafana-admin-password" || echo "dev-grafana-admin-password not in deletion state"
+          aws secretsmanager restore-secret --secret-id dev-db-password --region $AWS_REGION 2>/dev/null && echo "Restored dev-db-password" || echo "dev-db-password not in deletion state"
+          aws secretsmanager restore-secret --secret-id dev-db-username --region $AWS_REGION 2>/dev/null && echo "Restored dev-db-username" || echo "dev-db-username not in deletion state"
+          aws secretsmanager restore-secret --secret-id dev-grafana-admin-password --region $AWS_REGION 2>/dev/null && echo "Restored dev-grafana-admin-password" || echo "dev-grafana-admin-password not in deletion state"
 
       - name: Terraform Init
         working-directory: terraform/environments/dev
@@ -197,84 +197,84 @@ jobs:
         id: tf-outputs
         working-directory: terraform/environments/dev
         run: |
-          FRONTEND_ECR=\$(terraform output -raw frontend_repository_url 2>/dev/null || echo "")
-          BACKEND_ECR=\$(terraform output -raw backend_repository_url 2>/dev/null || echo "")
-          CLUSTER_NAME=\$(terraform output -raw cluster_name 2>/dev/null || echo "dev")
-          ALB_DNS=\$(terraform output -raw alb_dns_name 2>/dev/null || echo "")
+          FRONTEND_ECR=$(terraform output -raw frontend_repository_url 2>/dev/null || echo "")
+          BACKEND_ECR=$(terraform output -raw backend_repository_url 2>/dev/null || echo "")
+          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "dev")
+          ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "")
           
           # Fall back to AWS CLI if outputs aren't available
-          if [ -z "\$FRONTEND_ECR" ]; then
-            ACCOUNT_ID=\$(aws sts get-caller-identity --query Account --output text)
-            FRONTEND_ECR="\${ACCOUNT_ID}.dkr.ecr.\${AWS_REGION}.amazonaws.com/dev-frontend"
-            BACKEND_ECR="\${ACCOUNT_ID}.dkr.ecr.\${AWS_REGION}.amazonaws.com/dev-backend"
+          if [ -z "$FRONTEND_ECR" ]; then
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            FRONTEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/dev-frontend"
+            BACKEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/dev-backend"
           fi
           
-          echo "frontend_ecr=\${FRONTEND_ECR}" >> \$GITHUB_OUTPUT
-          echo "backend_ecr=\${BACKEND_ECR}" >> \$GITHUB_OUTPUT
-          echo "cluster_name=\${CLUSTER_NAME}" >> \$GITHUB_OUTPUT
-          echo "alb_dns=\${ALB_DNS}" >> \$GITHUB_OUTPUT
+          echo "frontend_ecr=${FRONTEND_ECR}" >> $GITHUB_OUTPUT
+          echo "backend_ecr=${BACKEND_ECR}" >> $GITHUB_OUTPUT
+          echo "cluster_name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+          echo "alb_dns=${ALB_DNS}" >> $GITHUB_OUTPUT
           
           echo "ECR Repositories:"
-          echo "  Frontend: \${FRONTEND_ECR}"
-          echo "  Backend: \${BACKEND_ECR}"
-          echo "  Cluster: \${CLUSTER_NAME}"
+          echo "  Frontend: ${FRONTEND_ECR}"
+          echo "  Backend: ${BACKEND_ECR}"
+          echo "  Cluster: ${CLUSTER_NAME}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and Push Docker Images
         run: |
-          IMAGE_TAG="\${{ github.sha }}"
-          FORCE_REBUILD="\${{ github.event.inputs.force_rebuild }}"
+          IMAGE_TAG="${{ github.sha }}"
+          FORCE_REBUILD="${{ github.event.inputs.force_rebuild }}"
           
           # Set cache options based on force_rebuild
-          if [ "\$FORCE_REBUILD" == "true" ]; then
+          if [ "$FORCE_REBUILD" == "true" ]; then
             echo "Force rebuild enabled - ignoring cache"
             CACHE_FROM_FE=""
             CACHE_FROM_BE=""
           else
-            CACHE_FROM_FE="--cache-from type=registry,ref=\${{ steps.tf-outputs.outputs.frontend_ecr }}:latest"
-            CACHE_FROM_BE="--cache-from type=registry,ref=\${{ steps.tf-outputs.outputs.backend_ecr }}:latest"
+            CACHE_FROM_FE="--cache-from type=registry,ref=${{ steps.tf-outputs.outputs.frontend_ecr }}:latest"
+            CACHE_FROM_BE="--cache-from type=registry,ref=${{ steps.tf-outputs.outputs.backend_ecr }}:latest"
           fi
           
           # Build and push frontend
           docker buildx build \
             --platform linux/amd64 \
-            --tag "\${{ steps.tf-outputs.outputs.frontend_ecr }}:\${IMAGE_TAG}" \
-            --tag "\${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" \
+            --tag "${{ steps.tf-outputs.outputs.frontend_ecr }}:${IMAGE_TAG}" \
+            --tag "${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" \
             --push \
-            \$CACHE_FROM_FE \
+            $CACHE_FROM_FE \
             --cache-to type=inline \
             ./frontend &
           
           # Build and push backend
           docker buildx build \
             --platform linux/amd64 \
-            --tag "\${{ steps.tf-outputs.outputs.backend_ecr }}:\${IMAGE_TAG}" \
-            --tag "\${{ steps.tf-outputs.outputs.backend_ecr }}:latest" \
+            --tag "${{ steps.tf-outputs.outputs.backend_ecr }}:${IMAGE_TAG}" \
+            --tag "${{ steps.tf-outputs.outputs.backend_ecr }}:latest" \
             --push \
-            \$CACHE_FROM_BE \
+            $CACHE_FROM_BE \
             --cache-to type=inline \
             ./backend &
           
           wait
-          echo "Images built and pushed with tags: \${IMAGE_TAG}, latest"
+          echo "Images built and pushed with tags: ${IMAGE_TAG}, latest"
 
       - name: Deploy ECS Services
         run: |
-          CLUSTER_NAME="\${{ steps.tf-outputs.outputs.cluster_name }}"
-          SKIP_MONITORING="\${{ github.event.inputs.skip_monitoring }}"
+          CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
+          SKIP_MONITORING="${{ github.event.inputs.skip_monitoring }}"
           
           echo "Deploying application services..."
-          aws ecs update-service --cluster "\$CLUSTER_NAME" --service "dev-frontend" --force-new-deployment --no-cli-pager &
-          aws ecs update-service --cluster "\$CLUSTER_NAME" --service "dev-backend" --force-new-deployment --no-cli-pager &
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-frontend" --force-new-deployment --no-cli-pager &
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-backend" --force-new-deployment --no-cli-pager &
           wait
           
-          if [ "\$SKIP_MONITORING" != "true" ]; then
+          if [ "$SKIP_MONITORING" != "true" ]; then
             echo "Deploying monitoring services..."
-            aws ecs update-service --cluster "\$CLUSTER_NAME" --service "dev-prometheus" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Prometheus service not ready yet"
-            aws ecs update-service --cluster "\$CLUSTER_NAME" --service "dev-grafana" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Grafana service not ready yet"
-            aws ecs update-service --cluster "\$CLUSTER_NAME" --service "dev-loki" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Loki service not ready yet"
+            aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-prometheus" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Prometheus service not ready yet"
+            aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-grafana" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Grafana service not ready yet"
+            aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-loki" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Loki service not ready yet"
           else
             echo "Skipping monitoring services (skip_monitoring=true)"
           fi
@@ -282,26 +282,26 @@ jobs:
       - name: Wait for Services
         id: deploy-check
         run: |
-          CLUSTER_NAME="\${{ steps.tf-outputs.outputs.cluster_name }}"
-          SKIP_MONITORING="\${{ github.event.inputs.skip_monitoring }}"
+          CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
+          SKIP_MONITORING="${{ github.event.inputs.skip_monitoring }}"
           
           echo "Waiting for application services to stabilize (up to 10 minutes)..."
           aws ecs wait services-stable \
-            --cluster "\$CLUSTER_NAME" \
+            --cluster "$CLUSTER_NAME" \
             --services "dev-frontend" "dev-backend" \
             --cli-connect-timeout 600 \
             --cli-read-timeout 600 && echo "Application services stable" || echo "Application services may still be starting"
           
-          if [ "\$SKIP_MONITORING" != "true" ]; then
+          if [ "$SKIP_MONITORING" != "true" ]; then
             echo "Waiting for monitoring services..."
             aws ecs wait services-stable \
-              --cluster "\$CLUSTER_NAME" \
+              --cluster "$CLUSTER_NAME" \
               --services "dev-prometheus" "dev-grafana" "dev-loki" \
               --cli-connect-timeout 300 \
               --cli-read-timeout 300 2>/dev/null && echo "Monitoring services stable" || echo "Monitoring services may still be starting"
           fi
           
-          echo "success=true" >> \$GITHUB_OUTPUT
+          echo "success=true" >> $GITHUB_OUTPUT
 
   test-deployment:
     name: Test Deployment
@@ -320,8 +320,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::125156866057:role/github-OICD
-          role-session-name: 3tier-app-test-\${{ github.run_id }}
-          aws-region: \${{ env.AWS_REGION }}
+          role-session-name: 3tier-app-test-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
@@ -334,58 +334,58 @@ jobs:
         working-directory: terraform/environments/dev
         run: |
           terraform init -input=false
-          ALB_DNS=\$(terraform output -raw alb_dns_name)
-          MONITORING_ALB_DNS=\$(terraform output -raw monitoring_alb_dns 2>/dev/null || echo "")
-          echo "alb_dns=\$ALB_DNS" >> \$GITHUB_OUTPUT
-          echo "monitoring_alb_dns=\$MONITORING_ALB_DNS" >> \$GITHUB_OUTPUT
+          ALB_DNS=$(terraform output -raw alb_dns_name)
+          MONITORING_ALB_DNS=$(terraform output -raw monitoring_alb_dns 2>/dev/null || echo "")
+          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+          echo "monitoring_alb_dns=$MONITORING_ALB_DNS" >> $GITHUB_OUTPUT
 
       - name: Test Endpoints
         run: |
-          ALB_DNS="\${{ steps.get-alb.outputs.alb_dns }}"
-          MONITORING_ALB_DNS="\${{ steps.get-alb.outputs.monitoring_alb_dns }}"
+          ALB_DNS="${{ steps.get-alb.outputs.alb_dns }}"
+          MONITORING_ALB_DNS="${{ steps.get-alb.outputs.monitoring_alb_dns }}"
           
-          echo "Testing application at http://\$ALB_DNS"
+          echo "Testing application at http://$ALB_DNS"
           
           # Test frontend
           for i in {1..30}; do
-            if curl -f -s "http://\$ALB_DNS" > /dev/null; then
+            if curl -f -s "http://$ALB_DNS" > /dev/null; then
               echo "Frontend is responding"
               break
             fi
-            echo "Frontend not ready, retry \$i/30..."
+            echo "Frontend not ready, retry $i/30..."
             sleep 10
           done
           
           # Test backend API
           for i in {1..30}; do
-            if curl -f -s "http://\$ALB_DNS/api/health" > /dev/null; then
+            if curl -f -s "http://$ALB_DNS/api/health" > /dev/null; then
               echo "Backend API is responding"
               break
             fi
-            echo "Backend API not ready, retry \$i/30..."
+            echo "Backend API not ready, retry $i/30..."
             sleep 10
           done
           
           # Test monitoring if available
-          if [ -n "\$MONITORING_ALB_DNS" ]; then
+          if [ -n "$MONITORING_ALB_DNS" ]; then
             echo ""
-            echo "Testing monitoring at http://\$MONITORING_ALB_DNS"
+            echo "Testing monitoring at http://$MONITORING_ALB_DNS"
             
             for i in {1..10}; do
-              if curl -f -s "http://\$MONITORING_ALB_DNS/prometheus/-/healthy" > /dev/null; then
+              if curl -f -s "http://$MONITORING_ALB_DNS/prometheus/-/healthy" > /dev/null; then
                 echo "Prometheus is responding"
                 break
               fi
-              echo "Prometheus not ready, retry \$i/10..."
+              echo "Prometheus not ready, retry $i/10..."
               sleep 10
             done
             
             for i in {1..10}; do
-              if curl -f -s "http://\$MONITORING_ALB_DNS/grafana/api/health" > /dev/null; then
+              if curl -f -s "http://$MONITORING_ALB_DNS/grafana/api/health" > /dev/null; then
                 echo "Grafana is responding"
                 break
               fi
-              echo "Grafana not ready, retry \$i/10..."
+              echo "Grafana not ready, retry $i/10..."
               sleep 10
             done
           fi
@@ -409,42 +409,42 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::125156866057:role/github-OICD
-          role-session-name: 3tier-app-keepalive-\${{ github.run_id }}
-          aws-region: \${{ env.AWS_REGION }}
+          role-session-name: 3tier-app-keepalive-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Display Access Information
         run: |
-          KEEP_MINUTES="\${{ github.event.inputs.keep_alive_minutes }}"
+          KEEP_MINUTES="${{ github.event.inputs.keep_alive_minutes }}"
           
-          echo "## Deployment Active" >> \$GITHUB_STEP_SUMMARY
-          echo "" >> \$GITHUB_STEP_SUMMARY
-          echo "The deployment will remain active for **\${KEEP_MINUTES} minutes** before automatic cleanup." >> \$GITHUB_STEP_SUMMARY
-          echo "" >> \$GITHUB_STEP_SUMMARY
-          echo "### To extend or cancel:" >> \$GITHUB_STEP_SUMMARY
-          echo "- Cancel this workflow run to prevent automatic destroy" >> \$GITHUB_STEP_SUMMARY
-          echo "- Re-run with 'deploy-only' action to keep infrastructure" >> \$GITHUB_STEP_SUMMARY
+          echo "## Deployment Active" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The deployment will remain active for **${KEEP_MINUTES} minutes** before automatic cleanup." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### To extend or cancel:" >> $GITHUB_STEP_SUMMARY
+          echo "- Cancel this workflow run to prevent automatic destroy" >> $GITHUB_STEP_SUMMARY
+          echo "- Re-run with 'deploy-only' action to keep infrastructure" >> $GITHUB_STEP_SUMMARY
 
       - name: Keep Alive Timer
         run: |
-          KEEP_MINUTES="\${{ github.event.inputs.keep_alive_minutes }}"
-          KEEP_SECONDS=\$((KEEP_MINUTES * 60))
+          KEEP_MINUTES="${{ github.event.inputs.keep_alive_minutes }}"
+          KEEP_SECONDS=$((KEEP_MINUTES * 60))
           
           # Cap at 120 minutes (GitHub Actions job timeout consideration)
-          if [ "\$KEEP_SECONDS" -gt 7200 ]; then
+          if [ "$KEEP_SECONDS" -gt 7200 ]; then
             KEEP_SECONDS=7200
             echo "Capped keep-alive duration to 120 minutes"
           fi
           
-          echo "Keeping deployment alive for \${KEEP_MINUTES} minutes..."
-          echo "Started at: \$(date)"
+          echo "Keeping deployment alive for ${KEEP_MINUTES} minutes..."
+          echo "Started at: $(date)"
           
           # Sleep in 60-second intervals with progress updates
           ELAPSED=0
-          while [ "\$ELAPSED" -lt "\$KEEP_SECONDS" ]; do
+          while [ "$ELAPSED" -lt "$KEEP_SECONDS" ]; do
             sleep 60
-            ELAPSED=\$((ELAPSED + 60))
-            REMAINING=\$(((KEEP_SECONDS - ELAPSED) / 60))
-            echo "Elapsed: \$((ELAPSED / 60)) minutes | Remaining: \${REMAINING} minutes"
+            ELAPSED=$((ELAPSED + 60))
+            REMAINING=$(((KEEP_SECONDS - ELAPSED) / 60))
+            echo "Elapsed: $((ELAPSED / 60)) minutes | Remaining: ${REMAINING} minutes"
           done
           
           echo "Keep-alive period completed. Proceeding to destroy..."
@@ -467,8 +467,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::125156866057:role/github-OICD
-          role-session-name: 3tier-app-destroy-\${{ github.run_id }}
-          aws-region: \${{ env.AWS_REGION }}
+          role-session-name: 3tier-app-destroy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
@@ -493,15 +493,15 @@ jobs:
         run: |
           echo "Cleaning up ECR repositories..."
           
-          FRONTEND_IMAGES=\$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
-          BACKEND_IMAGES=\$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          FRONTEND_IMAGES=$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          BACKEND_IMAGES=$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
           
-          if [ "\$FRONTEND_IMAGES" != "[]" ]; then
-            aws ecr batch-delete-image --repository-name dev-frontend --image-ids "\$FRONTEND_IMAGES" --no-cli-pager || true
+          if [ "$FRONTEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-frontend --image-ids "$FRONTEND_IMAGES" --no-cli-pager || true
           fi
           
-          if [ "\$BACKEND_IMAGES" != "[]" ]; then
-            aws ecr batch-delete-image --repository-name dev-backend --image-ids "\$BACKEND_IMAGES" --no-cli-pager || true
+          if [ "$BACKEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-backend --image-ids "$BACKEND_IMAGES" --no-cli-pager || true
           fi
           
           echo "ECR cleanup completed"
@@ -526,8 +526,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::125156866057:role/github-OICD
-          role-session-name: 3tier-app-destroy-only-\${{ github.run_id }}
-          aws-region: \${{ env.AWS_REGION }}
+          role-session-name: 3tier-app-destroy-only-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
@@ -552,15 +552,15 @@ jobs:
         run: |
           echo "Cleaning up ECR repositories..."
           
-          FRONTEND_IMAGES=\$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
-          BACKEND_IMAGES=\$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          FRONTEND_IMAGES=$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          BACKEND_IMAGES=$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
           
-          if [ "\$FRONTEND_IMAGES" != "[]" ]; then
-            aws ecr batch-delete-image --repository-name dev-frontend --image-ids "\$FRONTEND_IMAGES" --no-cli-pager || true
+          if [ "$FRONTEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-frontend --image-ids "$FRONTEND_IMAGES" --no-cli-pager || true
           fi
           
-          if [ "\$BACKEND_IMAGES" != "[]" ]; then
-            aws ecr batch-delete-image --repository-name dev-backend --image-ids "\$BACKEND_IMAGES" --no-cli-pager || true
+          if [ "$BACKEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-backend --image-ids "$BACKEND_IMAGES" --no-cli-pager || true
           fi
           
           echo "Destroying infrastructure..."
@@ -576,21 +576,21 @@ jobs:
     steps:
       - name: Generate Summary
         run: |
-          echo "## CI/CD Pipeline Summary" >> \$GITHUB_STEP_SUMMARY
-          echo "" >> \$GITHUB_STEP_SUMMARY
-          echo "### Configuration" >> \$GITHUB_STEP_SUMMARY
-          echo "- **Action**: \${{ github.event.inputs.action || 'push-triggered' }}" >> \$GITHUB_STEP_SUMMARY
-          echo "- **Keep Alive**: \${{ github.event.inputs.keep_alive_minutes || '0' }} minutes" >> \$GITHUB_STEP_SUMMARY
-          echo "- **Skip Tests**: \${{ github.event.inputs.skip_tests || 'false' }}" >> \$GITHUB_STEP_SUMMARY
-          echo "- **Skip Monitoring**: \${{ github.event.inputs.skip_monitoring || 'false' }}" >> \$GITHUB_STEP_SUMMARY
-          echo "" >> \$GITHUB_STEP_SUMMARY
-          echo "### Job Results" >> \$GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> \$GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> \$GITHUB_STEP_SUMMARY
-          echo "| Test and Build | \${{ needs.test-and-build.result || 'Skipped' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Terraform Check | \${{ needs.terraform-check.result || 'Skipped' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Deploy | \${{ needs.deploy.result || 'Skipped' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Test Deployment | \${{ needs.test-deployment.result || 'Skipped' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Keep Alive | \${{ needs.keep-alive.result || 'Skipped' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Destroy | \${{ needs.destroy.result || 'Skipped' }} |" >> \$GITHUB_STEP_SUMMARY
-          echo "| Destroy Only | \${{ needs.destroy-only.result || 'Skipped' }} |" >> \$GITHUB_STEP_SUMMARY
+          echo "## CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action**: ${{ github.event.inputs.action || 'push-triggered' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Keep Alive**: ${{ github.event.inputs.keep_alive_minutes || '0' }} minutes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Skip Tests**: ${{ github.event.inputs.skip_tests || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Skip Monitoring**: ${{ github.event.inputs.skip_monitoring || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Test and Build | ${{ needs.test-and-build.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Terraform Check | ${{ needs.terraform-check.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy | ${{ needs.deploy.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Deployment | ${{ needs.test-deployment.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Keep Alive | ${{ needs.keep-alive.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Destroy | ${{ needs.destroy.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Destroy Only | ${{ needs.destroy-only.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
