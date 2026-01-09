@@ -61,7 +61,7 @@ This project implements a production-grade, containerized 3-tier web application
 │   • TypeScript          │  │   • Express Framework    │
 │   • Nginx Server        │  │   • TypeScript           │
 │   • Responsive UI       │  │   • REST API             │
-│   • Material-UI         │  │   • Prisma ORM           │
+│   • Axios HTTP Client   │  │   • node-postgres           │
 │                         │  │   • Business Logic       │
 │   ECS Fargate           │  │                          │
 │   Auto-scaling          │  │   ECS Fargate            │
@@ -131,19 +131,20 @@ RDS Database (Private Subnet, Encrypted)
 
 ### Presentation Tier (Frontend)
 
-- **React 18** - Modern UI library with hooks and concurrent features
+- **React 19** - Modern UI library with hooks and concurrent features
 - **TypeScript** - Type-safe development with enhanced IDE support
 - **Nginx** - High-performance web server for static asset serving
-- **Material-UI** - Professional component library for consistent design
 - **Axios** - Promise-based HTTP client for API communication
 
 ### Application Tier (Backend)
 
-- **Node.js 18** - JavaScript runtime with ES module support
+- **Node.js 22** - Latest LTS JavaScript runtime with ES module support
 - **Express.js** - Minimal and flexible web application framework
 - **TypeScript** - Type-safe API development
-- **Prisma ORM** - Next-generation ORM for type-safe database access
-- **Joi/Yup** - Schema validation for request data
+- **node-postgres (pg)** - PostgreSQL client with connection pooling
+- **Winston** - Versatile logging library with multiple transports
+- **Helmet** - Security middleware for HTTP headers
+- **express-rate-limit** - Rate limiting middleware for API protection
 - **Prometheus Client** - Application metrics collection
 
 ### Data Tier (Database)
@@ -350,7 +351,7 @@ Containerized-3-Tier-Application/
 │   │   ├── middleware/        # Express middleware
 │   │   ├── services/          # External service integrations
 │   │   └── utils/             # Helper functions
-│   ├── prisma/                # Database schema and migrations
+│   ├── database/                # SQL initialization scripts
 │   ├── Dockerfile             # Multi-stage production build
 │   └── package.json           # Dependencies and scripts
 │
@@ -424,10 +425,10 @@ All sensitive credentials are stored in AWS Secrets Manager with automatic rotat
 ECS tasks use IAM roles with minimal required permissions. The principle of least privilege is strictly enforced across all AWS resources.
 
 **Input Validation**
-All API inputs are validated using Joi and Yup schemas. This prevents injection attacks and ensures data integrity.
+All API inputs are validated server-side. This prevents injection attacks and ensures data integrity.
 
 **SQL Injection Protection**
-Prisma ORM uses parameterized queries exclusively, eliminating the risk of SQL injection vulnerabilities.
+The node-postgres client uses parameterized queries exclusively, eliminating the risk of SQL injection vulnerabilities.
 
 **CORS Configuration**
 Cross-Origin Resource Sharing is configured with explicit allowed origins, preventing unauthorized cross-site requests.
@@ -602,15 +603,6 @@ gh workflow run rollback.yml \
   --field service=backend \
   --field version=v1.2.2
 ```
-
-### Documentation
-
-For detailed implementation guides, see:
-
-- [CI/CD Best Practices Guide](./CI-CD-BEST-PRACTICES.md)
-- [Quick Reference Guide](./QUICK-REFERENCE.md)
-- [Workflow Definitions](./.github/workflows/)
-
 ---
 
 ## Cost Analysis
@@ -855,35 +847,11 @@ Implement configurations for SOC 2, HIPAA, and PCI DSS compliance requirements.
 
 ---
 
-## Contributing
-
-Contributions are welcome. Please follow these guidelines:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please ensure your code:
-- Follows the existing code style
-- Includes appropriate tests
-- Updates documentation as needed
-- Passes all CI/CD checks
-
----
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
----
-
 ## Author
 
 **Eric Chiu**
 
-- Portfolio: [Deploy on Demand](https://github.com/iEric0228/Containerized-3-Tier-Application#quick-start)
+- Portfolio: [Deploy on Demand](https://github.com/iEric0228/cloud-resume)
 - LinkedIn: [Eric Chiu](https://www.linkedin.com/in/eric-chiu-a610553a3/)
 - GitHub: [@iEric0228](https://github.com/iEric0228)
 - Email: ericchiu0228@gmail.com
@@ -898,6 +866,7 @@ This project was built using industry-standard tools and follows best practices 
 - [The Twelve-Factor App](https://12factor.net/)
 - [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
 - [Terraform Best Practices](https://www.terraform-best-practices.com/)
+- [Docker Scout Actions](https://github.com/docker/scout-action)
 
 ---
 
