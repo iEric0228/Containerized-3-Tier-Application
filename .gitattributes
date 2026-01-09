@@ -1,0 +1,103 @@
+# Auto detect text files and normalize line endings to LF
+* text=auto eol=lf
+
+# Source code
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.tf text eol=lf
+*.hcl text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.sql text eol=lf
+
+# Configuration files
+*.conf text eol=lf
+*.config text eol=lf
+*.xml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+.env* text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+LICENSE text eol=lf
+README text eol=lf
+
+# Docker
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+.dockerignore text eol=lf
+
+# Web files
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.sass text eol=lf
+*.less text eol=lf
+*.svg text eol=lf
+
+# Binary files (explicitly mark to avoid corruption)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.tgz binary
+*.7z binary
+*.jar binary
+*.war binary
+*.ear binary
+*.class binary
+*.dll binary
+*.exe binary
+*.so binary
+*.dylib binary
+
+# Font files
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+
+# Video/Audio
+*.mp4 binary
+*.mp3 binary
+*.wav binary
+*.avi binary
+*.mov binary
+*.webm binary
+
+# Lock files (generated, don't show diffs)
+package-lock.json -diff
+yarn.lock -diff
+pnpm-lock.yaml -diff
+
+# Terraform state files (mark as binary to prevent diffs)
+*.tfstate binary
+*.tfstate.backup binary
+
+# Exclude files from export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore
+.github/ export-ignore
+.vscode/ export-ignore
+tests/ export-ignore
+*.test.* export-ignore
+*.spec.* export-ignore

@@ -82,10 +82,11 @@ resource "aws_iam_role_policy" "ecs_task_secrets" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = [
+        Resource = compact([
           var.db_password_secret_arn,
-          var.db_username_secret_arn
-        ]
+          var.db_username_secret_arn,
+          var.grafana_admin_password_secret_arn
+        ])
       },
       {
         Effect = "Allow"
@@ -248,7 +249,7 @@ resource "aws_ecs_task_definition" "backend" {
         startPeriod = 60
       }
 
-      environment = [
+      environment = concat([
         {
           name  = "NODE_ENV"
           value = "production"
@@ -268,8 +269,21 @@ resource "aws_ecs_task_definition" "backend" {
         {
           name  = "DB_NAME"
           value = var.db_name
+        },
+        {
+          name  = "PROMETHEUS_URL"
+          value = var.prometheus_url
+        },
+        {
+          name  = "LOKI_URL"
+          value = var.loki_url
         }
-      ]
+      ], var.loki_host != "" ? [
+        {
+          name  = "LOKI_HOST"
+          value = var.loki_host
+        }
+      ] : [])
       
       secrets = [
         {
@@ -277,7 +291,7 @@ resource "aws_ecs_task_definition" "backend" {
           valueFrom = var.db_password_secret_arn
         },
         {
-          name      = "DB_USERNAME"
+          name      = "DB_USER"  # Changed from DB_USERNAME to match backend code
           valueFrom = var.db_username_secret_arn
         }
       ]

@@ -34,6 +34,15 @@ resource "aws_security_group" "ecs_tasks" {
   name_prefix = "${var.name_prefix}-ecs-tasks-"
   vpc_id      = var.vpc_id
 
+  # Frontend nginx container access from ALB (port 80)
+  ingress {
+    description     = "Frontend Nginx from ALB"
+    from_port       = 80 # Nginx port
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id] # Only from ALB security group
+  }
+
   # Frontend container access from ALB
   ingress {
     description     = "Frontend from ALB"

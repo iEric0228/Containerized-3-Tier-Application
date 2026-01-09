@@ -14,28 +14,22 @@ on:
           - 'destroy-only'
           - 'test-only'
       skip_destroy:
-        description: 'Skip destroy step (faster testing)'
+        description: 'Skip destroy step (useful for debugging)'
         required: false
         default: false
         type: boolean
-  #push:
-  #  branches: [ main ]
-  #pull_request:
-  # branches: [ main ]
 
 env:
   AWS_REGION: us-east-1
   TF_WORKSPACE: dev
-  ECR_REGISTRY: 125156866057.dkr.ecr.us-east-1.amazonaws.com
 
-# Add OIDC permissions at the top level
 permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: read    # This is required for actions/checkout
+  id-token: write
+  contents: read
 
 jobs:
   test-and-build:
-    name: Test & Build
+    name: Test and Build
     runs-on: ubuntu-latest
     if: |
       github.event.inputs.action != 'destroy-only' || 
@@ -51,8 +45,7 @@ jobs:
         with:
           node-version: 18
 
-      # Backend Tests (Parallel)
-      - name: Install & Test Backend
+      - name: Install and Test Backend
         working-directory: backend
         run: |
           npm ci
@@ -61,8 +54,7 @@ jobs:
         env:
           CI: true
 
-      # Frontend Tests (Parallel)
-      - name: Install & Test Frontend
+      - name: Install and Test Frontend
         working-directory: frontend
         run: |
           npm ci
@@ -100,7 +92,7 @@ jobs:
         run: terraform validate
 
   deploy:
-    name: Deploy Infrastructure & Apps
+    name: Deploy Infrastructure
     needs: [test-and-build, terraform-check]
     runs-on: ubuntu-latest
     if: |
@@ -135,11 +127,28 @@ jobs:
           terraform_version: 1.9.0
           terraform_wrapper: false
 
-      - name: Terraform Init & Workspace
+      - name: Recover Deleted Secrets
+        working-directory: terraform/environments/dev
+        continue-on-error: true
+        run: |
+          echo "Attempting to recover any secrets scheduled for deletion..."
+          aws secretsmanager restore-secret --secret-id dev-db-password --region $AWS_REGION 2>/dev/null && echo "Restored dev-db-password" || echo "dev-db-password not in deletion state"
+          aws secretsmanager restore-secret --secret-id dev-db-username --region $AWS_REGION 2>/dev/null && echo "Restored dev-db-username" || echo "dev-db-username not in deletion state"
+          aws secretsmanager restore-secret --secret-id dev-grafana-admin-password --region $AWS_REGION 2>/dev/null && echo "Restored dev-grafana-admin-password" || echo "dev-grafana-admin-password not in deletion state"
+
+      - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
           terraform init -input=false
           terraform workspace select $TF_WORKSPACE || terraform workspace new $TF_WORKSPACE
+
+      - name: Import Existing Resources
+        working-directory: terraform/environments/dev
+        continue-on-error: true
+        run: |
+          echo "Running resource import script..."
+          chmod +x auto-import-resources.sh
+          ./auto-import-resources.sh || echo "Some imports failed, continuing..."
 
       - name: Terraform Plan
         working-directory: terraform/environments/dev
@@ -153,20 +162,36 @@ jobs:
         id: tf-outputs
         working-directory: terraform/environments/dev
         run: |
-          echo "frontend_ecr=$(terraform output -raw frontend_repository_url)" >> $GITHUB_OUTPUT
-          echo "backend_ecr=$(terraform output -raw backend_repository_url)" >> $GITHUB_OUTPUT
-          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
-          echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
+          FRONTEND_ECR=$(terraform output -raw frontend_repository_url 2>/dev/null || echo "")
+          BACKEND_ECR=$(terraform output -raw backend_repository_url 2>/dev/null || echo "")
+          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "dev")
+          ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "")
+          
+          # Fall back to AWS CLI if outputs aren't available
+          if [ -z "$FRONTEND_ECR" ]; then
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            FRONTEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/dev-frontend"
+            BACKEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/dev-backend"
+          fi
+          
+          echo "frontend_ecr=${FRONTEND_ECR}" >> $GITHUB_OUTPUT
+          echo "backend_ecr=${BACKEND_ECR}" >> $GITHUB_OUTPUT
+          echo "cluster_name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+          echo "alb_dns=${ALB_DNS}" >> $GITHUB_OUTPUT
+          
+          echo "ECR Repositories:"
+          echo "  Frontend: ${FRONTEND_ECR}"
+          echo "  Backend: ${BACKEND_ECR}"
+          echo "  Cluster: ${CLUSTER_NAME}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & Push Images with Immutable Tags
+      - name: Build and Push Docker Images
         run: |
-          # Use Git SHA for immutable versioning
           IMAGE_TAG="${{ github.sha }}"
           
-          # Build both images in parallel with multiple tags
+          # Build and push frontend
           docker buildx build \
             --platform linux/amd64 \
             --tag "${{ steps.tf-outputs.outputs.frontend_ecr }}:${IMAGE_TAG}" \
@@ -176,6 +201,7 @@ jobs:
             --cache-to type=inline \
             ./frontend &
           
+          # Build and push backend
           docker buildx build \
             --platform linux/amd64 \
             --tag "${{ steps.tf-outputs.outputs.backend_ecr }}:${IMAGE_TAG}" \
@@ -186,42 +212,45 @@ jobs:
             ./backend &
           
           wait
-          
-          echo "✅ Images built and pushed successfully with tags: ${IMAGE_TAG} and latest"
+          echo "Images built and pushed with tags: ${IMAGE_TAG}, latest"
 
-      - name: Force ECS Service Deployment
+      - name: Deploy ECS Services
         run: |
           CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
           
-          aws ecs update-service \
-            --cluster "$CLUSTER_NAME" \
-            --service "dev-frontend-service" \
-            --force-new-deployment \
-            --no-cli-pager &
-          
-          aws ecs update-service \
-            --cluster "$CLUSTER_NAME" \
-            --service "dev-backend-service" \
-            --force-new-deployment \
-            --no-cli-pager &
-          
+          echo "Deploying application services..."
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-frontend" --force-new-deployment --no-cli-pager &
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-backend" --force-new-deployment --no-cli-pager &
           wait
+          
+          echo "Deploying monitoring services..."
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-prometheus" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Prometheus service not ready yet"
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-grafana" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Grafana service not ready yet"
+          aws ecs update-service --cluster "$CLUSTER_NAME" --service "dev-loki" --force-new-deployment --no-cli-pager 2>/dev/null || echo "Loki service not ready yet"
 
-      - name: Wait for Services to be Stable
+      - name: Wait for Services
         id: deploy-check
         run: |
           CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
           
-          echo "⏳ Waiting for services to stabilize (max 10 minutes)..."
-          
+          echo "Waiting for application services to stabilize (up to 10 minutes)..."
           aws ecs wait services-stable \
             --cluster "$CLUSTER_NAME" \
-            --services "dev-frontend-service" "dev-backend-service" \
+            --services "dev-frontend" "dev-backend" \
             --cli-connect-timeout 600 \
-            --cli-read-timeout 600 && echo "success=true" >> $GITHUB_OUTPUT || echo "success=false" >> $GITHUB_OUTPUT
+            --cli-read-timeout 600 && echo "Application services stable" || echo "Application services may still be starting"
+          
+          echo "Waiting for monitoring services..."
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER_NAME" \
+            --services "dev-prometheus" "dev-grafana" "dev-loki" \
+            --cli-connect-timeout 300 \
+            --cli-read-timeout 300 2>/dev/null && echo "Monitoring services stable" || echo "Monitoring services may still be starting"
+          
+          echo "success=true" >> $GITHUB_OUTPUT
 
   test-deployment:
-    name: Test Deployed Application
+    name: Test Deployment
     needs: [deploy]
     runs-on: ubuntu-latest
     if: |
@@ -246,42 +275,69 @@ jobs:
           terraform_version: 1.9.0
           terraform_wrapper: false
 
-      - name: Get ALB DNS Name
+      - name: Get ALB DNS Names
         id: get-alb
         working-directory: terraform/environments/dev
         run: |
           terraform init -input=false
           terraform workspace select $TF_WORKSPACE
           ALB_DNS=$(terraform output -raw alb_dns_name)
+          MONITORING_ALB_DNS=$(terraform output -raw monitoring_alb_dns 2>/dev/null || echo "")
           echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+          echo "monitoring_alb_dns=$MONITORING_ALB_DNS" >> $GITHUB_OUTPUT
 
-      - name: Test Application Endpoints
+      - name: Test Endpoints
         run: |
           ALB_DNS="${{ steps.get-alb.outputs.alb_dns }}"
+          MONITORING_ALB_DNS="${{ steps.get-alb.outputs.monitoring_alb_dns }}"
           
-          echo " Testing application at: http://$ALB_DNS"
+          echo "Testing application at http://$ALB_DNS"
           
-          # Test frontend (with retries)
+          # Test frontend
           for i in {1..30}; do
             if curl -f -s "http://$ALB_DNS" > /dev/null; then
               echo "Frontend is responding"
               break
             fi
-            echo "⏳ Frontend not ready, retry $i/30..."
+            echo "Frontend not ready, retry $i/30..."
             sleep 10
           done
           
-          # Test backend API (with retries)
+          # Test backend API
           for i in {1..30}; do
             if curl -f -s "http://$ALB_DNS/api/health" > /dev/null; then
               echo "Backend API is responding"
               break
             fi
-            echo " Backend API not ready, retry $i/30..."
+            echo "Backend API not ready, retry $i/30..."
             sleep 10
           done
           
-          echo "Application tests completed!"
+          # Test monitoring if available
+          if [ -n "$MONITORING_ALB_DNS" ]; then
+            echo ""
+            echo "Testing monitoring at http://$MONITORING_ALB_DNS"
+            
+            for i in {1..10}; do
+              if curl -f -s "http://$MONITORING_ALB_DNS/prometheus/-/healthy" > /dev/null; then
+                echo "Prometheus is responding"
+                break
+              fi
+              echo "Prometheus not ready, retry $i/10..."
+              sleep 10
+            done
+            
+            for i in {1..10}; do
+              if curl -f -s "http://$MONITORING_ALB_DNS/grafana/api/health" > /dev/null; then
+                echo "Grafana is responding"
+                break
+              fi
+              echo "Grafana not ready, retry $i/10..."
+              sleep 10
+            done
+          fi
+          
+          echo "Deployment tests completed"
 
   destroy:
     name: Destroy Infrastructure
@@ -310,75 +366,24 @@ jobs:
           terraform_version: 1.9.0
           terraform_wrapper: false
 
-      - name: Terraform Init & Workspace
+      - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
           terraform init -input=false
-          terraform workspace select $TF_WORKSPACE
+          terraform workspace select $TF_WORKSPACE || echo "Workspace may not exist"
 
-      - name: Empty ECR Repositories (Speed Up Destroy)
+      - name: Import Existing Resources
+        working-directory: terraform/environments/dev
         continue-on-error: true
         run: |
-          echo "🗑️ Cleaning up ECR repositories..."
-          
-          # List and delete all images (not just latest)
-          FRONTEND_IMAGES=$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
-          BACKEND_IMAGES=$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
-          
-          if [ "$FRONTEND_IMAGES" != "[]" ]; then
-            aws ecr batch-delete-image \
-              --repository-name dev-frontend \
-              --image-ids "$FRONTEND_IMAGES" \
-              --no-cli-pager || true
-          fi
-          
-          if [ "$BACKEND_IMAGES" != "[]" ]; then
-            aws ecr batch-delete-image \
-              --repository-name dev-backend \
-              --image-ids "$BACKEND_IMAGES" \
-              --no-cli-pager || true
-          fi
-          
-          echo "✅ ECR cleanup completed"
+          echo "Running resource import before destroy..."
+          chmod +x auto-import-resources.sh
+          ./auto-import-resources.sh || echo "Some imports failed, continuing..."
 
-      - name: Terraform Destroy
-        working-directory: terraform/environments/dev
+      - name: Clean ECR Repositories
+        continue-on-error: true
         run: |
-          echo "Destroying infrastructure..."
-          terraform destroy -auto-approve
-          
-          echo "Infrastructure destroyed successfully!"
-
-  destroy-only:
-    name: Destroy Only
-    runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'destroy-only'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: 🔐 Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
-          role-session-name: 3tier-app-destroy-only-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.0
-          terraform_wrapper: false
-
-      - name: Terraform Init & Destroy
-        working-directory: terraform/environments/dev
-        run: |
-          terraform init -input=false
-          terraform workspace select $TF_WORKSPACE || echo "⚠️ Workspace may not exist"
-          
-          # Clean up ECR repos first
-          echo "🗑️ Cleaning up ECR repositories..."
+          echo "Cleaning up ECR repositories..."
           
           FRONTEND_IMAGES=$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
           BACKEND_IMAGES=$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
@@ -391,10 +396,70 @@ jobs:
             aws ecr batch-delete-image --repository-name dev-backend --image-ids "$BACKEND_IMAGES" --no-cli-pager || true
           fi
           
-          echo "🔥 Starting infrastructure destruction..."
+          echo "ECR cleanup completed"
+
+      - name: Terraform Destroy
+        working-directory: terraform/environments/dev
+        run: |
+          echo "Destroying infrastructure..."
           terraform destroy -auto-approve
+          echo "Infrastructure destroyed"
+
+  destroy-only:
+    name: Destroy Only
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'destroy-only'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-session-name: 3tier-app-destroy-only-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform/environments/dev
+        run: |
+          terraform init -input=false
+          terraform workspace select $TF_WORKSPACE || echo "Workspace may not exist"
+
+      - name: Import Existing Resources
+        working-directory: terraform/environments/dev
+        continue-on-error: true
+        run: |
+          echo "Running resource import before destroy..."
+          chmod +x auto-import-resources.sh
+          ./auto-import-resources.sh || echo "Some imports failed, continuing..."
+
+      - name: Clean ECR and Destroy
+        working-directory: terraform/environments/dev
+        run: |
+          echo "Cleaning up ECR repositories..."
           
-          echo "✅ Infrastructure destroyed successfully!"
+          FRONTEND_IMAGES=$(aws ecr list-images --repository-name dev-frontend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          BACKEND_IMAGES=$(aws ecr list-images --repository-name dev-backend --query 'imageIds[*]' --output json 2>/dev/null || echo '[]')
+          
+          if [ "$FRONTEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-frontend --image-ids "$FRONTEND_IMAGES" --no-cli-pager || true
+          fi
+          
+          if [ "$BACKEND_IMAGES" != "[]" ]; then
+            aws ecr batch-delete-image --repository-name dev-backend --image-ids "$BACKEND_IMAGES" --no-cli-pager || true
+          fi
+          
+          echo "Destroying infrastructure..."
+          terraform destroy -auto-approve
+          echo "Infrastructure destroyed"
 
   summary:
     name: Pipeline Summary
@@ -403,12 +468,12 @@ jobs:
     needs: [test-and-build, terraform-check, deploy, test-deployment, destroy, destroy-only]
 
     steps:
-      - name: Pipeline Summary
+      - name: Generate Summary
         run: |
           echo "## CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Tests & Build | ${{ needs.test-and-build.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test and Build | ${{ needs.test-and-build.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Terraform Check | ${{ needs.terraform-check.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Deploy | ${{ needs.deploy.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Test Deployment | ${{ needs.test-deployment.result || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY

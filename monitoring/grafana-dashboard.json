@@ -1,0 +1,90 @@
+{
+  "dashboard": {
+    "title": "3-Tier Application Overview",
+    "tags": ["3-tier", "monitoring"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Backend API - HTTP Requests Total",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{service=\"backend\"}[5m])",
+            "legendFormat": "{{method}} {{route}} - {{status_code}}",
+            "refId": "A"
+          }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "id": 2,
+        "title": "Backend API - Request Duration",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service=\"backend\"}[5m]))",
+            "legendFormat": "p95 - {{method}} {{route}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{service=\"backend\"}[5m]))",
+            "legendFormat": "p50 - {{method}} {{route}}",
+            "refId": "B"
+          }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "id": 3,
+        "title": "Backend Logs",
+        "type": "logs",
+        "gridPos": {"x": 0, "y": 8, "w": 24, "h": 10},
+        "targets": [
+          {
+            "expr": "{service=\"backend\"}",
+            "refId": "A"
+          }
+        ],
+        "datasource": "Loki"
+      },
+      {
+        "id": 4,
+        "title": "Node.js Memory Usage",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 18, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes{service=\"backend\"}",
+            "legendFormat": "Backend Memory",
+            "refId": "A"
+          }
+        ],
+        "datasource": "Prometheus"
+      },
+      {
+        "id": 5,
+        "title": "Node.js CPU Usage",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 18, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(process_cpu_user_seconds_total{service=\"backend\"}[5m])",
+            "legendFormat": "User CPU",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(process_cpu_system_seconds_total{service=\"backend\"}[5m])",
+            "legendFormat": "System CPU",
+            "refId": "B"
+          }
+        ],
+        "datasource": "Prometheus"
+      }
+    ],
+    "schemaVersion": 36,
+    "version": 1
+  }
+}

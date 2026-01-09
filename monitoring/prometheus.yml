@@ -1,12 +1,55 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    cluster: 'docker-compose'
+    environment: 'development'
 
+# Scrape configuration for collecting metrics
 scrape_configs:
-  # Scrape metrics from backend
-  - job_name: 'backend'
+  # Scrape Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          tier: 'monitoring'
+
+  # Scrape Backend API metrics (Node.js Express)
+  - job_name: 'backend-api'
     static_configs:
       - targets: ['backend:3001']
+        labels:
+          service: 'backend'
+          tier: 'backend'
+          app: '3-tier-app'
     metrics_path: '/metrics'
     scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Scrape PostgreSQL metrics (if pg-exporter is added)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #       labels:
+  #         service: 'postgres'
+  #         tier: 'database'
+
+  # Scrape Loki metrics
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['grafana-lgtm:3100']
+        labels:
+          service: 'loki'
+          tier: 'monitoring'
+    metrics_path: '/metrics'
+
+  # Scrape Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana-lgtm:3000']
+        labels:
+          service: 'grafana'
+          tier: 'monitoring'
+    metrics_path: '/metrics'
     

@@ -14,6 +14,9 @@ export class DatabaseConnection {
       max: 20, // Connection pool size
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
+      ssl: {
+        rejectUnauthorized: false // Required for AWS RDS
+      }
     });
   }
 

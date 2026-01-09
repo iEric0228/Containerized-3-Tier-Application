@@ -9,12 +9,21 @@ import axios from 'axios';
 import { DatabaseConnection } from './config/database';
 import promClient from 'prom-client';
 import logger from './config/logger';
+import fs from 'fs';
+import path from 'path';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Monitoring service URLs - use environment variables for AWS, fallback to Docker Compose names
+const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://prometheus:9090';
+const LOKI_URL = process.env.LOKI_URL || 'http://loki:3100';
+
+console.log(`📊 Prometheus URL: ${PROMETHEUS_URL}`);
+console.log(`📋 Loki URL: ${LOKI_URL}`);
 
 // Start collecting default metrics (CPU, memory, etc.)
 collectDefaultMetrics();
@@ -188,9 +197,11 @@ app.get('/api/prometheus/query', async (req, res) => {
   try {
     const { query } = req.query;
     console.log('🔍 Prometheus query:', query);
+    console.log('🔗 Prometheus URL:', PROMETHEUS_URL);
     
-    const response = await axios.get('http://prometheus:9090/api/v1/query', {
-      params: { query }
+    const response = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, {
+      params: { query },
+      timeout: 5000
     });
     
     console.log('✅ Prometheus response:', JSON.stringify(response.data, null, 2));
@@ -198,8 +209,9 @@ app.get('/api/prometheus/query', async (req, res) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error('❌ Prometheus proxy error:', error.message);
-      console.error('Error details:', (error as any).response?.data);
-      res.status(500).json({ error: 'Failed to query Prometheus' });
+      const axiosError = error as { response?: { data?: unknown } };
+      console.error('Error details:', axiosError.response?.data);
+      res.status(500).json({ error: 'Failed to query Prometheus', details: error.message });
     } else {
       console.error('❌ Prometheus proxy error:', error);
       res.status(500).json({ error: 'Unknown error occurred' });
@@ -222,7 +234,8 @@ app.get('/api/loki/query_range', async (req, res) => {
       query: lokiQuery,
       limit: limit || 100,
       start,
-      end
+      end,
+      lokiUrl: LOKI_URL
     });
     
     // Use URLSearchParams for proper encoding
@@ -232,7 +245,9 @@ app.get('/api/loki/query_range', async (req, res) => {
     params.append('start', String(start));
     params.append('end', String(end));
     
-    const response = await axios.get(`http://grafana-lgtm:3100/loki/api/v1/query_range?${params.toString()}`);
+    const response = await axios.get(`${LOKI_URL}/loki/api/v1/query_range?${params.toString()}`, {
+      timeout: 5000
+    });
     
     console.log('✅ Loki query successful, streams found:', response.data.data?.result?.length || 0);
     
@@ -240,10 +255,11 @@ app.get('/api/loki/query_range', async (req, res) => {
   } catch (error: unknown) {
     if (error instanceof Error) {
       console.error('❌ Loki proxy error:', error.message);
-      console.error('Loki error details:', (error as any).response?.data);
+      const axiosError = error as { response?: { data?: unknown } };
+      console.error('Loki error details:', axiosError.response?.data);
       res.status(500).json({ 
         error: 'Failed to query Loki',
-        details: (error as any).response?.data || error.message 
+        details: axiosError.response?.data || error.message 
       });
     } else {
       console.error('❌ Loki proxy error:', error);
@@ -287,6 +303,42 @@ app.get('/api/users', async (req, res) => {
     } else {
       logger.error('Unknown database error:', error);
       console.error('Unknown database error:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Unknown error occurred'
+      });
+    }
+  }
+});
+
+// Database initialization endpoint
+app.post('/api/init-db', async (req, res) => {
+  try {
+    logger.info('🔧 Initializing database schema...');
+    const pool = db.getPool();
+    
+    // Read the SQL file content
+    const sqlPath = path.join(__dirname, '../database/01_init.sql');
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+    
+    logger.info('📄 Running SQL initialization script');
+    await pool.query(sql);
+    
+    logger.info('✅ Database schema initialized successfully');
+    res.json({
+      success: true,
+      message: 'Database initialized successfully'
+    });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      logger.error('❌ Database initialization error:', error.message);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to initialize database',
+        details: error.message
+      });
+    } else {
+      logger.error('❌ Unknown database initialization error:', error);
       res.status(500).json({
         success: false,
         error: 'Unknown error occurred'

@@ -3,6 +3,18 @@ resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr # Example: "10.0.0.0/16" (65,536 IPs)
   enable_dns_hostnames = true         # Allows EC2 instances to get public DNS names
   enable_dns_support   = true         # Enables DNS resolution
+
+  tags = merge(
+    var.common_tags,
+    {
+      Name = "${var.name_prefix}-vpc"
+    }
+  )
+
+  lifecycle {
+    create_before_destroy = true
+    prevent_destroy       = false
+  }
 }
 
 # 2. Internet Gateway - Gateway to the internet

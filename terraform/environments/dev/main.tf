@@ -9,7 +9,19 @@ terraform {
 
 # Configure the AWS Provider
 provider "aws" {
-  region = "us-east-1"
+  region = var.aws_region
+}
+
+# Refresh state to detect VPC changes
+data "aws_vpcs" "existing" {
+  tags = {
+    Project = var.common_tags["Project"]
+  }
+}
+
+# Use existing VPC if available, otherwise module will create new one
+locals {
+  use_existing_vpc = length(data.aws_vpcs.existing.ids) > 0
 }
 
 module "vpc" {
@@ -43,6 +55,19 @@ module "secrets" {
   common_tags = var.common_tags
 }
 
+# Create secret for Grafana admin password
+resource "aws_secretsmanager_secret" "grafana_admin_password" {
+  name        = "${var.name_prefix}-grafana-admin-password"
+  description = "Grafana admin password"
+
+  tags = var.common_tags
+}
+
+resource "aws_secretsmanager_secret_version" "grafana_admin_password" {
+  secret_id     = aws_secretsmanager_secret.grafana_admin_password.id
+  secret_string = var.grafana_admin_password
+}
+
 module "alb" {
   source            = "../../modules/ALB"
   name_prefix       = var.name_prefix
@@ -65,21 +90,43 @@ module "rds" {
 }
 
 module "ecs" {
-  source                    = "../../modules/ECS"
-  name_prefix               = var.name_prefix
-  frontend_image            = module.ecr.frontend_repository_url
-  backend_image             = module.ecr.backend_repository_url
-  private_subnet_ids        = module.vpc.private_subnet_ids
-  ecs_security_group_id     = module.security.ecs_tasks_sg_id
-  frontend_target_group_arn = module.alb.frontend_target_group_arn
-  backend_target_group_arn  = module.alb.backend_target_group_arn
-  alb_listener              = module.alb.alb_listener_arn
-  alb_dns_name              = module.alb.alb_dns_name
-  aws_region                = var.aws_region
-  db_host                   = module.rds.db_endpoint
-  db_name                   = var.db_name
-  db_username_secret_arn    = module.secrets.db_username_secret_arn
-  db_password_secret_arn    = module.secrets.db_password_secret_arn
-  common_tags               = var.common_tags
-  vpc_id                    = module.vpc.vpc_id
+  source                            = "../../modules/ECS"
+  name_prefix                       = var.name_prefix
+  frontend_image                    = module.ecr.frontend_repository_url
+  backend_image                     = module.ecr.backend_repository_url
+  private_subnet_ids                = module.vpc.private_subnet_ids
+  ecs_security_group_id             = module.security.ecs_tasks_sg_id
+  frontend_target_group_arn         = module.alb.frontend_target_group_arn
+  backend_target_group_arn          = module.alb.backend_target_group_arn
+  alb_listener                      = module.alb.alb_listener_arn
+  alb_dns_name                      = module.alb.alb_dns_name
+  aws_region                        = var.aws_region
+  db_host                           = module.rds.db_address # Use db_address instead of db_endpoint
+  db_name                           = var.db_name
+  db_username_secret_arn            = module.secrets.db_username_secret_arn
+  db_password_secret_arn            = module.secrets.db_password_secret_arn
+  grafana_admin_password_secret_arn = aws_secretsmanager_secret.grafana_admin_password.arn
+  loki_host                         = "http://loki.dev.local:3100"
+  prometheus_url                    = "http://prometheus.dev.local:9090/prometheus"
+  loki_url                          = "http://loki.dev.local:3100"
+  common_tags                       = var.common_tags
+  vpc_id                            = module.vpc.vpc_id
+}
+
+# Monitoring Stack Module
+module "monitoring" {
+  source                            = "../../modules/monitoring"
+  name_prefix                       = var.name_prefix
+  vpc_id                            = module.vpc.vpc_id
+  private_subnet_ids                = module.vpc.private_subnet_ids
+  public_subnet_ids                 = module.vpc.public_subnet_ids
+  ecs_cluster_id                    = module.ecs.cluster_id
+  ecs_task_security_group_id        = module.security.ecs_tasks_sg_id
+  alb_security_group_id             = module.security.alb_sg_id
+  ecs_task_execution_role_arn       = module.ecs.task_execution_role_arn
+  ecs_task_role_arn                 = module.ecs.task_role_arn
+  grafana_admin_password_secret_arn = aws_secretsmanager_secret.grafana_admin_password.arn
+  service_discovery_namespace_id    = module.ecs.service_discovery_namespace_id
+  service_discovery_namespace_name  = module.ecs.service_discovery_namespace_name
+  common_tags                       = var.common_tags
 }

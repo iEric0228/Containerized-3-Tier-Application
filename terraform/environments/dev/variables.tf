@@ -35,6 +35,11 @@ variable "db_password" {
   description = "Database password"
   type        = string
 }
+variable "grafana_admin_password" {
+  description = "Grafana admin password"
+  type        = string
+  sensitive   = true
+}
 variable "availability_zones" {
   description = "List of AZs"
   type        = list(string)

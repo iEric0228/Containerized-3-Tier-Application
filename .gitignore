@@ -5,6 +5,9 @@
 
 # Dependencies
 node_modules/
+**/node_modules/
+node_modules*/
+**/node_modules*/
 # Note: package-lock.json should be committed for reproducible builds
 
 # Logs
@@ -13,16 +16,27 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
 
 # Runtime
 .DS_Store
 .neon_local/
 *.tmp
 *.temp
+pids/
+*.pid
+*.seed
+*.pid.lock
+lib-cov/
 
 # IDEs
 .vscode/
+.vscode/settings.json
+.vscode/launch.json
 .idea/
+.idea/workspace.xml
+.idea/tasks.xml
 *.swp
 *.swo
 *~
@@ -30,6 +44,9 @@ yarn-error.log*
 # Build outputs
 dist/
 build/
+out/
+.next/
+.nuxt/
 *.tgz
 *.tar.gz
 
@@ -37,6 +54,14 @@ build/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs_vista.db
+Thumbs.db:encryptable
+desktop.ini
 
 # AWS & Cloud
 .aws/
@@ -52,21 +77,32 @@ credentials
 .terraform.lock.hcl
 *.tfstate
 *.tfstate.*
-*.tfvars
-*.tfvars.json
+*.tfstate.backup
+crash.log
+crash.*.log
+terraform.tfplan
+tfplan
+*.tfplan
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
 .terraformrc
 terraform.rc
-terraform.tfplan
-terraform.tfplan.*
+
+# Keep terraform.tfvars in dev for local development
+# but exclude production secrets
+terraform.tfvars.backup
+**/prod/*.tfvars
+**/production/*.tfvars
 
 # Coverage reports
 coverage/
+*.coverage
 .nyc_output/
-*.lcov
+junit.xml
+test-results/
+test-report/
 
 # Cache directories
 .cache/
@@ -102,12 +138,19 @@ service-accounts/
 
 # Docker
 docker-compose.override.yml
+postgres_data/
+mysql_data/
+redis_data/
+volumes/
 
 # Backup files
 *.bak
 *.backup
 *.old
+*.orig
 *~
+.#*
+\#*#
 
 # Archive files
 *.zip
@@ -118,3 +161,19 @@ docker-compose.override.yml
 #UI
 .shared
 .github/prompts/
+
+# Monitoring data (local development)
+monitoring/loki/
+monitoring/mimir/
+monitoring/tempo/
+monitoring/promtail/
+monitoring/otel/
+prometheus_data/
+grafana_lgtm_data/
+loki_data/
+
+# Package manager lock files (keep only package-lock.json)
+package-lock*.json
+!package-lock.json
+yarn.lock
+pnpm-lock.yaml

@@ -439,7 +439,7 @@ terraform plan          # Deployment preview
 
 ---
 
-## 🔄 CI/CD Pipeline
+##  CI/CD Pipeline
 
 ### **Automated Workflow**
 
@@ -468,7 +468,7 @@ Pipeline Stages:
    - Run smoke tests
 ```
 
-### **🔒 Enhanced Docker Security Pipeline**
+### ** Enhanced Docker Security Pipeline**
 
 The CI/CD pipeline follows industry best practices with Docker Scout integration for comprehensive security analysis. Key features include:
 
@@ -497,7 +497,7 @@ The CI/CD pipeline follows industry best practices with Docker Scout integration
 
 These enhancements leverage the [Docker Scout GitHub Action](https://docs.docker.com/scout/integrations/ci/gha/) to automate security checks and ensure compliance with best practices.
 
-📚 **Documentation:**
+ **Documentation:**
 - [CI/CD Best Practices Guide](./CI-CD-BEST-PRACTICES.md) - Detailed implementation guide
 - [Quick Reference](./QUICK-REFERENCE.md) - Common commands and debugging tips
 - [Workflows](./.github/workflows/) - `ci-cd.yml` and `docker-security.yml`
@@ -518,7 +518,7 @@ gh workflow run rollback.yml \
 
 ---
 
-## 🎯 Performance Benchmarks
+##  Performance Benchmarks
 
 ### **Target Metrics**
 - **Page Load Time:** < 2 seconds (p95)
@@ -538,7 +538,7 @@ Test Scenario: 500 concurrent users, 10-minute duration
 
 ---
 
-## 🚀 Advanced Features & Roadmap
+##  Advanced Features & Roadmap
 
 ### **Phase 2 Enhancements**
 - [ ] **Service Mesh** - AWS App Mesh for advanced traffic management
@@ -563,7 +563,7 @@ Test Scenario: 500 concurrent users, 10-minute duration
 ---
 
 
-## 📚 Learning Resources
+##  Learning Resources
 
 ### **Technologies Used**
 - [AWS ECS Best Practices](https://docs.aws.amazon.com/AmazonECS/latest/bestpracticesguide/)
@@ -579,7 +579,7 @@ Test Scenario: 500 concurrent users, 10-minute duration
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### **Common Issues**
 
@@ -610,10 +610,10 @@ aws cloudwatch get-metric-statistics \
 ## 👨‍💻 Author
 
 **Eric Chiu**
-- 🌐 Portfolio: [Deploy on Demand](https://github.com/iEric0228/Containerized-3-Tier-Application#-quick-start)
-- 💼 LinkedIn: [Eric Chiu](https://www.linkedin.com/in/eric-chiu-a610553a3/)  
-- 😺 GitHub: [@iEric0228](https://github.com/iEric0228)
-- 📧 Email: ericchiu0228@gmail.com
+-  Portfolio: [Deploy on Demand](https://github.com/iEric0228/Containerized-3-Tier-Application#-quick-start)
+-  LinkedIn: [Eric Chiu](https://www.linkedin.com/in/eric-chiu-a610553a3/)  
+-  GitHub: [@iEric0228](https://github.com/iEric0228)
+-  Email: ericchiu0228@gmail.com
 
 ---
 
@@ -621,6 +621,6 @@ aws cloudwatch get-metric-statistics \
 <div align="center">
 
 
-*Built with ❤️ using AWS, Docker, Terraform, React, and Node.js*
+*Built by using AWS, Docker, Terraform, React, and Node.js*
 
 </div>

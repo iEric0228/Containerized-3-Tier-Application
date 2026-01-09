@@ -1,9 +1,11 @@
-version: '3.8'  # Docker Compose file format version
+# filepath: /Users/ericchiu/Documents/GitHub/Containerized-3-Tier-Application/docker-compose.yml
+# Docker Compose configuration for 3-tier web application with monitoring
 
 services:
   # Database Tier
   postgres:
     image: postgres:15-alpine           # Lightweight PostgreSQL image
+    container_name: postgres
     environment:                        # Database configuration
       POSTGRES_DB: app_db
       POSTGRES_USER: postgres
@@ -16,12 +18,14 @@ services:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
     networks:
       - app-network
+    restart: unless-stopped
 
   # Backend Tier  
   backend:
     build:                             # Build from local Dockerfile
       context: ./backend
       dockerfile: Dockerfile
+    container_name: backend
     environment:                       # Runtime environment variables
       - NODE_ENV=production
       - DB_HOST=postgres               # Service-to-service communication
@@ -29,6 +33,7 @@ services:
       - DB_NAME=app_db
       - DB_USER=postgres
       - DB_PASSWORD=password
+      - LOKI_HOST=http://grafana-lgtm:3100  # Send logs to Loki
     ports:
       - "3001:3001"                   # Backend API served on port 3001
     depends_on:                        # Start order dependency
@@ -36,25 +41,28 @@ services:
         condition: service_healthy
     healthcheck:                       # API health monitoring
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-    
     networks:
       - app-network
+    restart: unless-stopped
 
   # Frontend Tier
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    container_name: frontend
     ports: ["3000:80"]                 # React app served on port 3000
     depends_on: [backend]              # Requires backend to be running
     networks:
       - app-network
+    restart: unless-stopped
 
 
 
   # Standalone Prometheus
   prometheus:
     image: prom/prometheus:latest
+    container_name: prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -65,14 +73,35 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
     networks:
       - app-network
     depends_on:
       - backend
+    restart: unless-stopped
+
+  # Promtail for log collection
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    ports:
+      - "9080:9080"
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command:
+      - '-config.file=/etc/promtail/config.yml'
+    networks:
+      - app-network
+    depends_on:
+      - grafana-lgtm
+    restart: unless-stopped
 
   # Grafana LGTM Stack (includes Grafana, Loki, Tempo, Mimir)
   grafana-lgtm:
     image: grafana/otel-lgtm:latest
+    container_name: grafana-lgtm
     ports:
       - "3002:3000"   # Grafana UI
       - "4317:4317"   # OTLP gRPC
@@ -81,12 +110,18 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
     volumes:
       - grafana_lgtm_data:/data
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json:ro
     networks:
       - app-network
     depends_on:
       - prometheus
+    restart: unless-stopped
 
 volumes:
   grafana_lgtm_data:

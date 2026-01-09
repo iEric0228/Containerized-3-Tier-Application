@@ -77,3 +77,27 @@ variable "db_username_secret_arn" {
   description = "ARN of the Secrets Manager secret for DB username"
   type        = string
 }
+
+variable "loki_host" {
+  description = "Loki endpoint URL for logging (optional)"
+  type        = string
+  default     = ""
+}
+
+variable "prometheus_url" {
+  description = "Prometheus URL for metrics queries"
+  type        = string
+  default     = "http://prometheus:9090"
+}
+
+variable "loki_url" {
+  description = "Loki URL for log queries"
+  type        = string
+  default     = "http://loki:3100"
+}
+
+variable "grafana_admin_password_secret_arn" {
+  description = "ARN of the Secrets Manager secret for Grafana admin password"
+  type        = string
+  default     = ""
+}
