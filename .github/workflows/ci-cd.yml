@@ -87,9 +87,6 @@ jobs:
         working-directory: terraform/environments/dev
         run: |
           terraform init -backend=false
-          terraform workspace list | grep -q "$TF_WORKSPACE" && \
-            terraform workspace select "$TF_WORKSPACE" || \
-            terraform workspace new "$TF_WORKSPACE"
 
       - name: Terraform Validate
         working-directory: terraform/environments/dev
@@ -143,9 +140,7 @@ jobs:
       - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
-          terraform workspace list | grep -q "$TF_WORKSPACE" && \
-            terraform workspace select "$TF_WORKSPACE" || \
-            terraform workspace new "$TF_WORKSPACE"
+          terraform init -input=false
 
       - name: Import Existing Resources
         working-directory: terraform/environments/dev
@@ -285,7 +280,6 @@ jobs:
         working-directory: terraform/environments/dev
         run: |
           terraform init -input=false
-          terraform workspace select $TF_WORKSPACE
           ALB_DNS=$(terraform output -raw alb_dns_name)
           MONITORING_ALB_DNS=$(terraform output -raw monitoring_alb_dns 2>/dev/null || echo "")
           echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
@@ -374,9 +368,7 @@ jobs:
       - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
-          terraform workspace list | grep -q "$TF_WORKSPACE" && \
-            terraform workspace select "$TF_WORKSPACE" || \
-            terraform workspace new "$TF_WORKSPACE"
+          terraform init -input=false
 
       - name: Import Existing Resources
         working-directory: terraform/environments/dev
@@ -436,9 +428,7 @@ jobs:
       - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
-          terraform workspace list | grep -q "$TF_WORKSPACE" && \
-            terraform workspace select "$TF_WORKSPACE" || \
-            terraform workspace new "$TF_WORKSPACE"
+          terraform init -input=false
 
       - name: Import Existing Resources
         working-directory: terraform/environments/dev
