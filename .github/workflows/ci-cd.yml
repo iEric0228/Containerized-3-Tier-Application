@@ -85,7 +85,11 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform/environments/dev
-        run: terraform init -backend=false
+        run: |
+          terraform init -backend=false
+          terraform workspace list | grep -q "$TF_WORKSPACE" && \
+            terraform workspace select "$TF_WORKSPACE" || \
+            terraform workspace new "$TF_WORKSPACE"
 
       - name: Terraform Validate
         working-directory: terraform/environments/dev
@@ -139,8 +143,9 @@ jobs:
       - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
-          terraform init -input=false
-          terraform workspace select $TF_WORKSPACE || terraform workspace new $TF_WORKSPACE
+          terraform workspace list | grep -q "$TF_WORKSPACE" && \
+            terraform workspace select "$TF_WORKSPACE" || \
+            terraform workspace new "$TF_WORKSPACE"
 
       - name: Import Existing Resources
         working-directory: terraform/environments/dev
@@ -369,8 +374,9 @@ jobs:
       - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
-          terraform init -input=false
-          terraform workspace select $TF_WORKSPACE || echo "Workspace may not exist"
+          terraform workspace list | grep -q "$TF_WORKSPACE" && \
+            terraform workspace select "$TF_WORKSPACE" || \
+            terraform workspace new "$TF_WORKSPACE"
 
       - name: Import Existing Resources
         working-directory: terraform/environments/dev
@@ -430,8 +436,9 @@ jobs:
       - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
-          terraform init -input=false
-          terraform workspace select $TF_WORKSPACE || echo "Workspace may not exist"
+          terraform workspace list | grep -q "$TF_WORKSPACE" && \
+            terraform workspace select "$TF_WORKSPACE" || \
+            terraform workspace new "$TF_WORKSPACE"
 
       - name: Import Existing Resources
         working-directory: terraform/environments/dev
