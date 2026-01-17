@@ -6,7 +6,6 @@ terraform {
     }
   }
 }
-
 # Configure the AWS Provider
 provider "aws" {
   region = var.aws_region
@@ -52,20 +51,8 @@ module "secrets" {
   name_prefix = var.name_prefix
   db_username = var.db_username
   db_password = var.db_password
+  grafana_admin_password = var.grafana_admin_password
   common_tags = var.common_tags
-}
-
-# Create secret for Grafana admin password
-resource "aws_secretsmanager_secret" "grafana_admin_password" {
-  name        = "${var.name_prefix}-grafana-admin-password"
-  description = "Grafana admin password"
-
-  tags = var.common_tags
-}
-
-resource "aws_secretsmanager_secret_version" "grafana_admin_password" {
-  secret_id     = aws_secretsmanager_secret.grafana_admin_password.id
-  secret_string = var.grafana_admin_password
 }
 
 module "alb" {
@@ -105,7 +92,7 @@ module "ecs" {
   db_name                           = var.db_name
   db_username_secret_arn            = module.secrets.db_username_secret_arn
   db_password_secret_arn            = module.secrets.db_password_secret_arn
-  grafana_admin_password_secret_arn = aws_secretsmanager_secret.grafana_admin_password.arn
+  grafana_admin_password_secret_arn = module.secrets.grafana_admin_password_secret_arn
   loki_host                         = "http://loki.dev.local:3100"
   prometheus_url                    = "http://prometheus.dev.local:9090/prometheus"
   loki_url                          = "http://loki.dev.local:3100"
@@ -125,7 +112,7 @@ module "monitoring" {
   alb_security_group_id             = module.security.alb_sg_id
   ecs_task_execution_role_arn       = module.ecs.task_execution_role_arn
   ecs_task_role_arn                 = module.ecs.task_role_arn
-  grafana_admin_password_secret_arn = aws_secretsmanager_secret.grafana_admin_password.arn
+  grafana_admin_password_secret_arn = module.secrets.grafana_admin_password_secret_arn
   service_discovery_namespace_id    = module.ecs.service_discovery_namespace_id
   service_discovery_namespace_name  = module.ecs.service_discovery_namespace_name
   common_tags                       = var.common_tags

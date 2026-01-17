@@ -79,7 +79,7 @@ DB_USERNAME_ARN=$(aws_query aws secretsmanager describe-secret --secret-id dev-d
 import_resource "module.secrets.aws_secretsmanager_secret.db_username" "$DB_USERNAME_ARN" "DB Username Secret"
 
 GRAFANA_PASSWORD_ARN=$(aws_query aws secretsmanager describe-secret --secret-id dev-grafana-admin-password --query ARN --output text --region "$AWS_REGION")
-import_resource "aws_secretsmanager_secret.grafana_admin_password" "$GRAFANA_PASSWORD_ARN" "Grafana Admin Password"
+import_resource "module.secrets.aws_secretsmanager_secret.grafana_admin_password" "$GRAFANA_PASSWORD_ARN" "Grafana Admin Password"
 
 # 2. RDS
 echo ""
