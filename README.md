@@ -6,9 +6,6 @@
 [![AWS](https://img.shields.io/badge/AWS-FF9900?style=flat-square&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 [![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat-square&logo=terraform&logoColor=white)](https://terraform.io/)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
-[![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
-[![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
 **Live Demo:** [Deploy on Demand](https://github.com/iEric0228/Containerized-3-Tier-Application#quick-start)
 
@@ -61,7 +58,7 @@ This project implements a production-grade, containerized 3-tier web application
 │   • TypeScript          │  │   • Express Framework    │
 │   • Nginx Server        │  │   • TypeScript           │
 │   • Responsive UI       │  │   • REST API             │
-│   • Axios HTTP Client   │  │   • node-postgres           │
+│   • Axios HTTP Client   │  │   • node-postgres        │
 │                         │  │   • Business Logic       │
 │   ECS Fargate           │  │                          │
 │   Auto-scaling          │  │   ECS Fargate            │
@@ -150,21 +147,22 @@ RDS Database (Private Subnet, Encrypted)
 ### Data Tier (Database)
 
 - **PostgreSQL 15** - Advanced open-source relational database
-- **AWS RDS** - Managed database service with automated maintenance
-- **Multi-AZ Deployment** - High availability and automatic failover
-- **Automated Backups** - Point-in-time recovery capabilities
+- **AWS RDS** - Managed database service (Multi-AZ, encrypted, automated backups)
 
-### Infrastructure and DevOps
+### Infrastructure, Monitoring, and DevOps
 
 - **AWS ECS Fargate** - Serverless container orchestration
 - **AWS ECR** - Private container registry with vulnerability scanning
-- **Application Load Balancer** - Layer 7 load balancing with SSL termination
-- **Amazon VPC** - Network isolation and security
-- **AWS Secrets Manager** - Secure credential storage and rotation
+- **Application Load Balancer (ALB)** - Layer 7 load balancing with SSL termination and path-based routing
+- **Amazon VPC** - Network isolation, public/private subnets, multi-AZ
+- **AWS Secrets Manager** - Secure credential storage and rotation (with Lambda support)
 - **Amazon CloudWatch** - Centralized logging and monitoring
-- **Terraform** - Infrastructure as Code with state management
-- **Docker** - Container runtime and image building
-- **GitHub Actions** - CI/CD automation and deployment pipelines
+- **Amazon EFS** - Persistent storage for monitoring stack
+- **AWS Service Discovery (Cloud Map)** - Internal DNS for ECS services
+- **Prometheus, Loki, Grafana** - Full observability stack (metrics, logs, dashboards)
+- **Terraform** - 100% Infrastructure as Code, modular, automated, and environment-based
+- **Docker** - Container runtime and image building (multi-stage, non-root, signed images)
+- **GitHub Actions** - CI/CD automation: build, test, scan, deploy, destroy, approval gates, and cost control
 
 ---
 

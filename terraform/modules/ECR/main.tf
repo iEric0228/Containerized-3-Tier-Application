@@ -2,16 +2,16 @@
 resource "aws_ecr_repository" "frontend" {
   name                 = "${var.name_prefix}-frontend"
   image_tag_mutability = "MUTABLE"
-  force_delete        = true
-  
+  force_delete         = true
+
   image_scanning_configuration {
-    scan_on_push = true  # Security: Scan for vulnerabilities
+    scan_on_push = true # Security: Scan for vulnerabilities
   }
-  
+
   encryption_configuration {
-    encryption_type = "AES256"  # Encrypt images at rest
+    encryption_type = "AES256" # Encrypt images at rest
   }
-  
+
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-frontend-ecr"
     Tier = "Frontend"
@@ -21,16 +21,16 @@ resource "aws_ecr_repository" "frontend" {
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.name_prefix}-backend"
   image_tag_mutability = "MUTABLE"
-  force_delete        = true
-  
+  force_delete         = true
+
   image_scanning_configuration {
     scan_on_push = true
   }
-  
+
   encryption_configuration {
     encryption_type = "AES256"
   }
-  
+
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-backend-ecr"
     Tier = "Backend"

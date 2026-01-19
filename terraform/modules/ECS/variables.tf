@@ -10,8 +10,8 @@ variable "common_tags" {
 }
 
 variable "vpc_id" {
-    description = "The VPC ID where ECS will be deployed"
-    type        = string
+  description = "The VPC ID where ECS will be deployed"
+  type        = string
 }
 
 variable "frontend_image" {

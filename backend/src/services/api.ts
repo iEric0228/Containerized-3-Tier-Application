@@ -31,7 +31,8 @@ router.get('/prometheus', async (req, res) => {
 // Get logs from Loki
 router.get('/logs', async (req, res) => {
   try {
-    const lokiUrl = 'http://loki:3100';
+    // Use environment variable or fallback to grafana-lgtm
+    const lokiUrl = process.env.LOKI_HOST || 'http://grafana-lgtm:3100';
     const query = '{job="containerlogs"}';
     const limit = req.query.limit || 100;
     

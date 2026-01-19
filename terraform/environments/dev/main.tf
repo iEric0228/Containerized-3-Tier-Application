@@ -11,18 +11,6 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Refresh state to detect VPC changes
-data "aws_vpcs" "existing" {
-  tags = {
-    Project = var.common_tags["Project"]
-  }
-}
-
-# Use existing VPC if available, otherwise module will create new one
-locals {
-  use_existing_vpc = length(data.aws_vpcs.existing.ids) > 0
-}
-
 module "vpc" {
   source             = "../../modules/VPC"
   vpc_cidr           = var.vpc_cidr
@@ -47,12 +35,14 @@ module "ecr" {
 }
 
 module "secrets" {
-  source      = "../../modules/secret"
-  name_prefix = var.name_prefix
-  db_username = var.db_username
-  db_password = var.db_password
+  source                 = "../../modules/secret"
+  name_prefix            = var.name_prefix
+  db_username            = var.db_username
+  db_password            = var.db_password
   grafana_admin_password = var.grafana_admin_password
-  common_tags = var.common_tags
+  rotation_lambda_arn    = var.rotation_lambda_arn
+  rotation_days          = var.rotation_days
+  common_tags            = var.common_tags
 }
 
 module "alb" {
@@ -71,9 +61,10 @@ module "rds" {
   db_username            = var.db_username
   db_password_secret_arn = module.secrets.db_password_secret_arn
   vpc_id                 = module.vpc.vpc_id
-  private_subnet_ids     = module.vpc.private_subnet_ids
+  private_subnet_ids     = module.vpc.private_subnet_ids # Always from correct VPC
   rds_sg_id              = module.security.rds_sg_id
   common_tags            = var.common_tags
+  # All subnet group and RDS resources are created by Terraform
 }
 
 module "ecs" {
@@ -88,15 +79,15 @@ module "ecs" {
   alb_listener                      = module.alb.alb_listener_arn
   alb_dns_name                      = module.alb.alb_dns_name
   aws_region                        = var.aws_region
-  db_host                           = module.rds.db_address # Use db_address instead of db_endpoint
+  db_host                           = module.rds.db_address
   db_name                           = var.db_name
   db_username_secret_arn            = module.secrets.db_username_secret_arn
   db_password_secret_arn            = module.secrets.db_password_secret_arn
   grafana_admin_password_secret_arn = module.secrets.grafana_admin_password_secret_arn
-  loki_host                         = "http://loki.dev.local:3100"
-  prometheus_url                    = "http://prometheus.dev.local:9090/prometheus"
-  loki_url                          = "http://loki.dev.local:3100"
-  common_tags                       = var.common_tags
+  loki_host                         = module.monitoring.loki_endpoint
+  prometheus_url                    = module.monitoring.prometheus_url
+  loki_url                          = module.monitoring.loki_endpoint
+  common_tags                       = merge(var.common_tags, { "Environment" = var.name_prefix })
   vpc_id                            = module.vpc.vpc_id
 }
 
@@ -116,4 +107,5 @@ module "monitoring" {
   service_discovery_namespace_id    = module.ecs.service_discovery_namespace_id
   service_discovery_namespace_name  = module.ecs.service_discovery_namespace_name
   common_tags                       = var.common_tags
+  # All log groups and monitoring resources are created by Terraform
 }

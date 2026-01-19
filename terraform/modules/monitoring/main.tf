@@ -253,7 +253,7 @@ resource "aws_ecs_task_definition" "loki" {
       root_directory          = "/"
       transit_encryption      = "ENABLED"
       transit_encryption_port = 2049
-      
+
       authorization_config {
         iam = "DISABLED"
       }
@@ -265,7 +265,7 @@ resource "aws_ecs_task_definition" "loki" {
       name      = "loki"
       image     = "grafana/loki:2.9.3"
       essential = true
-      user      = "0:0"  # Run as root to have permissions on EFS
+      user      = "0:0" # Run as root to have permissions on EFS
 
       portMappings = [
         {
@@ -399,7 +399,7 @@ resource "aws_ecs_task_definition" "prometheus" {
       root_directory          = "/"
       transit_encryption      = "ENABLED"
       transit_encryption_port = 2049
-      
+
       authorization_config {
         iam = "DISABLED"
       }
@@ -445,7 +445,7 @@ resource "aws_ecs_task_definition" "prometheus" {
       name      = "prometheus"
       image     = "prom/prometheus:v2.48.1"
       essential = true
-      user      = "0:0"  # Run as root to have permissions on EFS
+      user      = "0:0" # Run as root to have permissions on EFS
 
       dependsOn = [
         {
@@ -524,7 +524,7 @@ resource "aws_ecs_task_definition" "grafana" {
       root_directory          = "/"
       transit_encryption      = "ENABLED"
       transit_encryption_port = 2049
-      
+
       authorization_config {
         iam = "DISABLED"
       }
@@ -570,7 +570,7 @@ resource "aws_ecs_task_definition" "grafana" {
       name      = "grafana"
       image     = "grafana/grafana:10.2.3"
       essential = true
-      user      = "0:0"  # Run as root to have permissions on EFS
+      user      = "0:0" # Run as root to have permissions on EFS
 
       dependsOn = [
         {

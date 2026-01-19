@@ -39,6 +39,8 @@ services:
     depends_on:                        # Start order dependency
       postgres:
         condition: service_healthy
+      grafana-lgtm:
+        condition: service_started
     healthcheck:                       # API health monitoring
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
     networks:
@@ -76,8 +78,6 @@ services:
       - '--web.enable-lifecycle'
     networks:
       - app-network
-    depends_on:
-      - backend
     restart: unless-stopped
 
   # Promtail for log collection

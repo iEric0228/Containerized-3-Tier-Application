@@ -44,3 +44,25 @@ variable "availability_zones" {
   description = "List of AZs"
   type        = list(string)
 }
+variable "rotation_lambda_arn" {
+  description = "ARN of the Lambda function for secret rotation (optional)"
+  type        = string
+  default     = null
+}
+
+variable "rotation_days" {
+  description = "Number of days between automatic secret rotations"
+  type        = number
+  default     = 30
+}
+
+variable "environment" {
+  description = "The environment name (e.g., dev, staging, prod)"
+  type        = string
+}
+
+variable "skip_monitoring" {
+  description = "Whether to skip provisioning the monitoring stack"
+  type        = bool
+  default     = false
+}

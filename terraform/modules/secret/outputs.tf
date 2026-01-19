@@ -7,3 +7,7 @@ output "db_username_secret_arn" {
   description = "ARN of the DB username secret"
   value       = aws_secretsmanager_secret.db_username.arn
 }
+
+output "grafana_admin_password_secret_arn" {
+  value = aws_secretsmanager_secret.grafana_admin_password.arn
+}

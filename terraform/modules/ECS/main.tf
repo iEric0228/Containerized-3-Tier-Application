@@ -5,7 +5,7 @@ resource "aws_ecs_cluster" "main" {
   configuration {
     execute_command_configuration {
       logging = "OVERRIDE"
-      
+
       log_configuration {
         cloud_watch_encryption_enabled = true
         cloud_watch_log_group_name     = aws_cloudwatch_log_group.ecs.name
@@ -22,14 +22,14 @@ resource "aws_ecs_cluster" "main" {
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.name_prefix}"
   retention_in_days = 30
-  
+
   tags = var.common_tags
 }
 
 resource "aws_cloudwatch_log_group" "frontend" {
   name              = "/ecs/${var.name_prefix}/frontend"
   retention_in_days = 30
-  
+
   tags = merge(var.common_tags, {
     Tier = "Frontend"
   })
@@ -38,7 +38,7 @@ resource "aws_cloudwatch_log_group" "frontend" {
 resource "aws_cloudwatch_log_group" "backend" {
   name              = "/ecs/${var.name_prefix}/backend"
   retention_in_days = 30
-  
+
   tags = merge(var.common_tags, {
     Tier = "Backend"
   })
@@ -151,24 +151,24 @@ resource "aws_ecs_task_definition" "frontend" {
   family                   = "${var.name_prefix}-frontend"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"  # 0.25 vCPU
-  memory                   = "512"  # 512 MB
+  cpu                      = "256" # 0.25 vCPU
+  memory                   = "512" # 512 MB
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  task_role_arn           = aws_iam_role.ecs_task.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
 
   container_definitions = jsonencode([
     {
       name      = "frontend"
       image     = var.frontend_image
       essential = true
-      
+
       portMappings = [
         {
           containerPort = 80
           protocol      = "tcp"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -177,7 +177,7 @@ resource "aws_ecs_task_definition" "frontend" {
           "awslogs-stream-prefix" = "ecs"
         }
       }
-      
+
       healthCheck = {
         command = [
           "CMD-SHELL",
@@ -214,21 +214,21 @@ resource "aws_ecs_task_definition" "backend" {
   cpu                      = "512"  # 0.5 vCPU
   memory                   = "1024" # 1024 MB
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  task_role_arn           = aws_iam_role.ecs_task.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
 
   container_definitions = jsonencode([
     {
       name      = "backend"
       image     = var.backend_image
       essential = true
-      
+
       portMappings = [
         {
           containerPort = 3001
           protocol      = "tcp"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -237,7 +237,7 @@ resource "aws_ecs_task_definition" "backend" {
           "awslogs-stream-prefix" = "ecs"
         }
       }
-      
+
       healthCheck = {
         command = [
           "CMD-SHELL",
@@ -278,20 +278,20 @@ resource "aws_ecs_task_definition" "backend" {
           name  = "LOKI_URL"
           value = var.loki_url
         }
-      ], var.loki_host != "" ? [
+        ], var.loki_host != "" ? [
         {
           name  = "LOKI_HOST"
           value = var.loki_host
         }
       ] : [])
-      
+
       secrets = [
         {
           name      = "DB_PASSWORD"
           valueFrom = var.db_password_secret_arn
         },
         {
-          name      = "DB_USER"  # Changed from DB_USERNAME to match backend code
+          name      = "DB_USER" # Changed from DB_USERNAME to match backend code
           valueFrom = var.db_username_secret_arn
         }
       ]
@@ -308,7 +308,7 @@ resource "aws_ecs_task_definition" "backend" {
 resource "aws_service_discovery_private_dns_namespace" "main" {
   name = "${var.name_prefix}.local"
   vpc  = var.vpc_id
-  
+
   tags = var.common_tags
 }
 
@@ -318,7 +318,7 @@ resource "aws_service_discovery_service" "backend" {
 
   dns_config {
     namespace_id = aws_service_discovery_private_dns_namespace.main.id
-    
+
     dns_records {
       ttl  = 10
       type = "A"
@@ -334,7 +334,7 @@ resource "aws_ecs_service" "frontend" {
   name            = "${var.name_prefix}-frontend"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.frontend.arn
-  desired_count   = 2  # High availability
+  desired_count   = 2 # High availability
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -348,7 +348,7 @@ resource "aws_ecs_service" "frontend" {
     container_port   = 80
   }
 
-  deployment_maximum_percent = 200 
+  deployment_maximum_percent = 200
 
   deployment_minimum_healthy_percent = 50
 
@@ -371,7 +371,7 @@ resource "aws_ecs_service" "backend" {
   name            = "${var.name_prefix}-backend"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.backend.arn
-  desired_count   = 2  # High availability
+  desired_count   = 2 # High availability
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -390,7 +390,7 @@ resource "aws_ecs_service" "backend" {
   }
 
   deployment_maximum_percent = 200
-  
+
 
   deployment_minimum_healthy_percent = 50
 
