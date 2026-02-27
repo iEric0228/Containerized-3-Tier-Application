@@ -1,5 +1,5 @@
 # Multi-stage build for optimized production React app
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -16,14 +16,24 @@ COPY . .
 # Build the React application
 RUN npm run build
 
-# Production stage with Nginx
-FROM nginx:alpine AS production
+# Production stage with Nginx (pinned for reproducibility)
+FROM nginx:1.27-alpine AS production
+
+# Run as non-root user for security
+RUN addgroup -g 1001 -S nginx-app && \
+    adduser -S -u 1001 -G nginx-app nginx-app && \
+    chown -R nginx-app:nginx-app /usr/share/nginx/html /var/cache/nginx /var/log/nginx && \
+    chown -R nginx-app:nginx-app /etc/nginx/conf.d && \
+    touch /var/run/nginx.pid && \
+    chown nginx-app:nginx-app /var/run/nginx.pid
 
 # Copy Nginx configuration directly
 COPY nginx.conf.template /etc/nginx/nginx.conf
 
 # Copy built React app from builder stage
 COPY --from=builder /app/build /usr/share/nginx/html
+
+USER nginx-app
 
 # Expose port 80
 EXPOSE 80

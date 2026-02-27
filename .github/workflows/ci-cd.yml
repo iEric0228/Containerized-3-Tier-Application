@@ -230,9 +230,8 @@ jobs:
       - name: Bootstrap Terraform Backend
         run: |
           set -e
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET_NAME="3tier-app-terraform-state-${ACCOUNT_ID}"
-          DYNAMODB_TABLE="3tier-app-terraform-locks"
+          BUCKET_NAME="ericchiu-terraform-state"
+          DYNAMODB_TABLE="terraform-state-lock"
           
           echo "Checking Terraform backend resources..."
           
@@ -267,7 +266,13 @@ jobs:
 
       - name: Terraform Init with Backend
         working-directory: terraform/environments/dev
-        run: terraform init -input=false -reconfigure
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config="bucket=ericchiu-terraform-state" \
+            -backend-config="key=dev/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=terraform-state-lock" \
+            -backend-config="encrypt=true"
 
       - name: Terraform Plan
         working-directory: terraform/environments/dev
@@ -446,7 +451,12 @@ jobs:
         id: get-alb
         working-directory: terraform/environments/dev
         run: |
-          terraform init -input=false
+          terraform init -input=false \
+            -backend-config="bucket=ericchiu-terraform-state" \
+            -backend-config="key=dev/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=terraform-state-lock" \
+            -backend-config="encrypt=true"
           ALB_DNS=$(terraform output -raw alb_dns_name)
           MONITORING_ALB_DNS=$(terraform output -raw monitoring_alb_dns 2>/dev/null || echo "")
           echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
@@ -655,7 +665,13 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform/environments/dev
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=ericchiu-terraform-state" \
+            -backend-config="key=dev/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=terraform-state-lock" \
+            -backend-config="encrypt=true"
 
       - name: Scale Down All ECS Services
         continue-on-error: true
@@ -875,7 +891,13 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform/environments/dev
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=ericchiu-terraform-state" \
+            -backend-config="key=dev/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=terraform-state-lock" \
+            -backend-config="encrypt=true"
 
       - name: Scale Down and Clean
         continue-on-error: true

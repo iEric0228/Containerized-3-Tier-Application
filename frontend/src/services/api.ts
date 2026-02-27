@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { User, ApiResponse, HealthCheck } from '../types/api.interface';
 
-// Environment-based API URL
-const API_BASE_URL = '/api';
+// Environment-based API URL: set REACT_APP_API_URL for direct backend access (e.g., in production
+// when the API is on a different origin), or leave unset to use the Nginx /api proxy (default).
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
