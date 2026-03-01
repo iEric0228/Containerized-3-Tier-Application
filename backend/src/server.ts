@@ -347,14 +347,6 @@ app.post('/api/init-db', async (req, res) => {
   }
 });
 
-// Basic API route
-app.get('/api', (req, res) => {
-  res.json({
-    message: 'Backend is running smoothly!',
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
 // Only start server if this file is run directly (not imported)
 if (require.main === module) {
   app.listen(PORT, () => {
