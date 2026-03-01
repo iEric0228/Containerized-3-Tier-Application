@@ -24,57 +24,32 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_id']
         target_label: 'container_id'
       
-      # Add job label based on container name (for Loki queries)
-      - source_labels: ['__meta_docker_container_name']
-        regex: '.*backend.*'
+      # Use Docker Compose service label for precise job matching
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         target_label: 'job'
-        replacement: 'backend'
-      
-      - source_labels: ['__meta_docker_container_name']
-        regex: '.*frontend.*'
-        target_label: 'job'
-        replacement: 'frontend'
-      
-      - source_labels: ['__meta_docker_container_name']
-        regex: '.*postgres.*'
-        target_label: 'job'
-        replacement: 'postgres'
-      
-      # Add service label based on container name
-      - source_labels: ['__meta_docker_container_name']
-        regex: '.*backend.*'
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         target_label: 'service'
-        replacement: 'backend'
-      
-      - source_labels: ['__meta_docker_container_name']
-        regex: '.*frontend.*'
-        target_label: 'service'
-        replacement: 'frontend'
-      
-      - source_labels: ['__meta_docker_container_name']
-        regex: '.*postgres.*'
-        target_label: 'service'
-        replacement: 'postgres'
-      
-      # Add tier label
-      - source_labels: ['service']
+
+      # Add tier label based on service
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         regex: 'backend'
         target_label: 'tier'
         replacement: 'backend'
-      
-      - source_labels: ['service']
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         regex: 'frontend'
         target_label: 'tier'
         replacement: 'frontend'
-      
-      - source_labels: ['service']
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
         regex: 'postgres'
         target_label: 'tier'
         replacement: 'database'
-      
-      # Add application label
+
+      # Static labels
       - target_label: 'app'
         replacement: '3-tier-app'
-      
+
       - target_label: 'environment'
         replacement: 'development'
