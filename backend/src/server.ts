@@ -20,7 +20,7 @@ const PORT = process.env.PORT || 3001;
 
 // Monitoring service URLs - use environment variables for AWS, fallback to Docker Compose names
 const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://prometheus:9090';
-const LOKI_URL = process.env.LOKI_URL || 'http://loki:3100';
+const LOKI_URL = process.env.LOKI_URL || process.env.LOKI_HOST || 'http://grafana-lgtm:3100';
 
 console.log(`📊 Prometheus URL: ${PROMETHEUS_URL}`);
 console.log(`📋 Loki URL: ${LOKI_URL}`);
