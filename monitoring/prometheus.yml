@@ -27,13 +27,14 @@ scrape_configs:
     scrape_interval: 10s
     scrape_timeout: 5s
 
-  # Scrape PostgreSQL metrics (if pg-exporter is added)
-  # - job_name: 'postgres'
-  #   static_configs:
-  #     - targets: ['postgres-exporter:9187']
-  #       labels:
-  #         service: 'postgres'
-  #         tier: 'database'
+  # Scrape PostgreSQL metrics via postgres-exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          tier: 'database'
+          app: '3-tier-app'
 
   # Scrape Loki metrics
   - job_name: 'loki'

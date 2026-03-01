@@ -20,7 +20,22 @@ services:
       - app-network
     restart: unless-stopped
 
-  # Backend Tier  
+  # PostgreSQL metrics exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://postgres:password@postgres:5432/app_db?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Backend Tier
   backend:
     build:                             # Build from local Dockerfile
       context: ./backend
