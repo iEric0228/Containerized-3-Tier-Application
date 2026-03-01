@@ -33,6 +33,7 @@ services:
       - DB_NAME=app_db
       - DB_USER=postgres
       - DB_PASSWORD=password
+      - DB_SSL=false
       - LOKI_HOST=http://grafana-lgtm:3100  # Send logs to Loki
       - LOKI_URL=http://grafana-lgtm:3100
     ports:
