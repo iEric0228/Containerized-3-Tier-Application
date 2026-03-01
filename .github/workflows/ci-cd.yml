@@ -1,3 +1,6 @@
+# NOTE: This workflow uses GitHub Environments for deployment gates.
+# Setup: Repository → Settings → Environments → Create "production" with required reviewer(s).
+# "dev" environment requires no reviewers. "production" requires manual approval.
 name: CI/CD Pipeline
 
 on:
@@ -160,6 +163,9 @@ jobs:
     name: Deploy Infrastructure
     needs: [config-summary, test-and-build, terraform-check, approval-gate]
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      url: https://github.com/${{ github.repository }}/actions
     if: |
       always() &&
       (needs.test-and-build.result == 'success' || needs.test-and-build.result == 'skipped') &&
