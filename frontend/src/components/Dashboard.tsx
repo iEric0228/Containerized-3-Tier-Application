@@ -516,7 +516,7 @@ const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className={`dashboard ${isVisible ? 'visible' : ''}`}>
+    <main className={`dashboard ${isVisible ? 'visible' : ''}`} aria-label="3-Tier Application Dashboard" role="main">
       {/* Animated Background Elements */}
       <div className="bg-animation">
         <div className="floating-element floating-1"></div>
@@ -572,7 +572,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Real-time Metrics from Grafana/Prometheus */}
-      <div className="metrics-bar fade-in-up delay-2" id="live-metrics-section">
+      <div className="metrics-bar fade-in-up delay-2" id="live-metrics-section" aria-label="Live Metrics">
         <div className="metric live-metric">
           <span className="metric-value animate-number">{currentMetrics.requests.toLocaleString()}</span>
           <span className="metric-label">Total Requests</span>
@@ -596,7 +596,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Live Deployment Status */}
-      <div className="health-section fade-in-up delay-3">
+      <section className="health-section fade-in-up delay-3" aria-label="Live Deployment Status">
         <h2 className="section-title">
           <span className="icon">🚀</span>
           Live Deployment Status
@@ -659,10 +659,10 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+      </section>
 
       {/* Live Monitoring Dashboard */}
-      <div className="live-monitoring-section fade-in-up delay-2" id="live-monitoring-section">
+      <section className="live-monitoring-section fade-in-up delay-2" id="live-monitoring-section" aria-label="Live Monitoring Dashboard">
         <h2 className="section-title">
           <span className="icon">📊</span>
           Live Monitoring Dashboard
@@ -682,11 +682,13 @@ const Dashboard: React.FC = () => {
           {/* Live Chart */}
           <div className="chart-container">
             <h3>📈 Real-time Performance Metrics</h3>
-            <canvas 
-              ref={canvasRef} 
-              width={600} 
+            <canvas
+              ref={canvasRef}
+              width={600}
               height={300}
               className="live-chart"
+              aria-label="Real-time HTTP requests chart"
+              role="img"
             />
             <div className="chart-legend">
               <span className="legend-item">
@@ -776,10 +778,10 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* System Health Monitor */}
-      <div className="architecture-section fade-in-up delay-3">
+      <section className="architecture-section fade-in-up delay-3" aria-label="System Architecture">
         <h2 className="section-title">
           <span className="icon">🗺️</span>
           High-Level System Design
@@ -831,10 +833,10 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* NEW: Comprehensive DevOps System Design */}
-      <div className="system-design-section fade-in-up delay-4">
+      <section className="system-design-section fade-in-up delay-4" aria-label="DevOps System Design">
         <h2 className="section-title">
           <span className="icon">🏗️</span>
           Complete DevOps Architecture
@@ -993,10 +995,10 @@ const Dashboard: React.FC = () => {
             <div className="tool-badge nginx">🌐 Nginx</div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Combined Project Overview Section */}
-      <div className="overview-section fade-in-up delay-5">
+      <section className="overview-section fade-in-up delay-5" aria-label="Project Overview">
         <h2 className="section-title">
           <span className="icon">📋</span>
           Project Overview & Impact
@@ -1054,10 +1056,10 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Technical Achievements with Working Demo Buttons */}
-      <div className="users-section fade-in-up delay-7">
+      <section className="users-section fade-in-up delay-7" aria-label="Technical Achievements">
         <h2 className="section-title">
           <span className="icon">🏆</span>
           Technical Achievements
@@ -1109,10 +1111,10 @@ const Dashboard: React.FC = () => {
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
       {/* DevOps Toolchain & Skills Mastery - Combined */}
-      <div className="toolchain-showcase fade-in-up delay-6">
+      <section className="toolchain-showcase fade-in-up delay-6" aria-label="Skills Developed">
         <h2 className="toolchain-title">
           <span className="icon">🛠️</span>
           DevOps Toolchain & Skills Mastery
@@ -1204,7 +1206,7 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Footer */}
       <footer className="dashboard-footer fade-in-up delay-8">
@@ -1226,7 +1228,7 @@ const Dashboard: React.FC = () => {
           <p>Built with ❤️ using modern DevOps practices • Ready for production deployment</p>
         </div>
       </footer>
-    </div>
+    </main>
   );
 };
 
