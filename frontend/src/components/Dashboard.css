@@ -3342,3 +3342,57 @@ button, a, .badge { cursor: pointer; }
         grid-template-columns: 1fr;
     }
 }
+
+/* ===== Responsive Breakpoints ===== */
+
+/* Tablet — 768px */
+@media (max-width: 768px) {
+  /* Convert any multi-column grid to single column */
+  [class*="grid"],
+  [class*="metrics-grid"],
+  [class*="skills-grid"],
+  [class*="achievements-grid"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Stack flex rows into columns */
+  [class*="flex-row"],
+  [class*="header-row"],
+  [class*="stats-row"] {
+    flex-direction: column !important;
+  }
+
+  /* Reduce padding on containers */
+  [class*="container"],
+  [class*="section"],
+  [class*="card"] {
+    padding: 1rem !important;
+  }
+
+  /* Make charts full width */
+  canvas {
+    width: 100% !important;
+    max-width: 100%;
+  }
+}
+
+/* Mobile — 480px */
+@media (max-width: 480px) {
+  /* Reduce font sizes for readability */
+  h1 { font-size: 1.4rem !important; }
+  h2 { font-size: 1.2rem !important; }
+  h3 { font-size: 1rem !important; }
+
+  /* Reduce all padding further */
+  [class*="container"],
+  [class*="section"],
+  [class*="card"] {
+    padding: 0.75rem !important;
+    margin: 0.5rem !important;
+  }
+
+  /* Single column for achievement items */
+  [class*="achievement"] {
+    grid-template-columns: 1fr !important;
+  }
+}
