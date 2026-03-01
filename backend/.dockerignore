@@ -1,6 +1,7 @@
 # ...existing code...
 # Ignore node_modules
 node_modules
+*/node_modules
 npm-debug.log
 
 # Ignore build artifacts
@@ -17,6 +18,7 @@ out
 .env.*
 .env.local
 .env.production
+!.env.example
 
 # Ignore test files and coverage
 coverage
