@@ -326,37 +326,28 @@ app.get('/api/users', async (req, res) => {
 
 // Database initialization endpoint
 app.post('/api/init-db', async (req, res) => {
+  const pool = db.getPool();
+  const client = await pool.connect();
   try {
     logger.info('🔧 Initializing database schema...');
-    const pool = db.getPool();
-    
-    // Read the SQL file content
+
     const sqlPath = path.join(__dirname, '../database/01_init.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
-    
+
+    await client.query('BEGIN');
     logger.info('📄 Running SQL initialization script');
-    await pool.query(sql);
-    
+    await client.query(sql);
+    await client.query('COMMIT');
+
     logger.info('✅ Database schema initialized successfully');
-    res.json({
-      success: true,
-      message: 'Database initialized successfully'
-    });
+    res.json({ success: true, message: 'Database initialized successfully' });
   } catch (error: unknown) {
-    if (error instanceof Error) {
-      logger.error('❌ Database initialization error:', error.message);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to initialize database',
-        details: error.message
-      });
-    } else {
-      logger.error('❌ Unknown database initialization error:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Unknown error occurred'
-      });
-    }
+    await client.query('ROLLBACK');
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('❌ Database initialization failed, rolled back:', message);
+    res.status(500).json({ success: false, error: 'Failed to initialize database', details: message });
+  } finally {
+    client.release();
   }
 });
 
