@@ -1,4 +1,20 @@
 import { Pool } from 'pg';
+import { Gauge } from 'prom-client';
+
+const pgPoolTotal = new Gauge({
+  name: 'pg_pool_total_connections',
+  help: 'Total number of connections in the PostgreSQL pool',
+});
+
+const pgPoolIdle = new Gauge({
+  name: 'pg_pool_idle_connections',
+  help: 'Number of idle connections in the PostgreSQL pool',
+});
+
+const pgPoolWaiting = new Gauge({
+  name: 'pg_pool_waiting_requests',
+  help: 'Number of pending requests waiting for a pool connection',
+});
 
 export class DatabaseConnection {
   private static instance: DatabaseConnection;
@@ -18,6 +34,23 @@ export class DatabaseConnection {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
       ssl: useSSL ? { rejectUnauthorized } : false,
+    });
+
+    // Update pool metrics on every acquire/release
+    this.pool.on('connect', () => {
+      pgPoolTotal.set(this.pool.totalCount);
+      pgPoolIdle.set(this.pool.idleCount);
+      pgPoolWaiting.set(this.pool.waitingCount);
+    });
+    this.pool.on('acquire', () => {
+      pgPoolTotal.set(this.pool.totalCount);
+      pgPoolIdle.set(this.pool.idleCount);
+      pgPoolWaiting.set(this.pool.waitingCount);
+    });
+    this.pool.on('remove', () => {
+      pgPoolTotal.set(this.pool.totalCount);
+      pgPoolIdle.set(this.pool.idleCount);
+      pgPoolWaiting.set(this.pool.waitingCount);
     });
   }
 
