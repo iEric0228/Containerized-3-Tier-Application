@@ -6,6 +6,9 @@
 [![AWS](https://img.shields.io/badge/AWS-FF9900?style=flat-square&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 [![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat-square&logo=terraform&logoColor=white)](https://terraform.io/)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
+![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
+![Grafana LGTM](https://img.shields.io/badge/LGTM-Loki%20%7C%20Grafana%20%7C%20Tempo%20%7C%20Mimir-F46800?logo=grafana)
 
 **Live Demo:** [Deploy on Demand](https://github.com/iEric0228/Containerized-3-Tier-Application#quick-start)
 
