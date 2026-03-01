@@ -16,6 +16,8 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
+// Trust the first proxy (Nginx or ALB) for correct IP detection
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
 // Monitoring service URLs - use environment variables for AWS, fallback to Docker Compose names
@@ -86,10 +88,10 @@ app.use(helmet());
 app.use(cors());
 app.use(compression());
 
-// Rate limiting - more permissive for dashboard
+// Rate limiting - 100 requests/minute per IP
 const limiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute window
-  max: 200, // Increased from 100 to 200 requests per minute
+  max: 100, // 100 requests per minute per IP
   message: 'Too many requests from this IP',
   standardHeaders: true,
   legacyHeaders: false,
