@@ -69,72 +69,22 @@ export class ApiService {
   }
 
   static async getLokiLogs(limit: number = 100): Promise<any> {
+    const endTime = Date.now() * 1000000;
+    const startTime = endTime - (24 * 60 * 60 * 1000 * 1000000); // 24 hours
+
     try {
-      // Try to get actual logs with proper time range
-      const endTime = Date.now() * 1000000; // Current time in nanoseconds
-      const startTime = endTime - (24 * 60 * 60 * 1000 * 1000000); // 24 hours ago
-      
-      // Try different label queries to find actual logs
-      const queries = [
-        '{job="backend"}',
-        '{app="containerized-app"}',
-        '{container_name="containerized-3-tier-application-backend-1"}',
-        '{service_name="backend"}',
-        '{}' // Get all logs as last resort
-      ];
-      
-      console.log('Trying Loki queries for real logs:', queries);
-      
-      for (const query of queries) {
-        try {
-          const response = await api.get('/loki/query_range', {
-            params: {
-              query,
-              limit,
-              start: startTime.toString(),
-              end: endTime.toString()
-            }
-          });
-          
-          console.log(`Loki response for query "${query}":`, response.data);
-          
-          // Check if we got actual log data
-          if (response.data?.data?.result && response.data.data.result.length > 0) {
-            const hasRealLogs = response.data.data.result.some((stream: any) => 
-              stream.values && stream.values.length > 0
-            );
-            
-            if (hasRealLogs) {
-              console.log('✅ Found real logs with query:', query);
-              return response.data;
-            }
-          }
-        } catch (queryError: any) {
-          console.warn(`Query "${query}" failed:`, queryError.response?.data || queryError.message);
-          continue;
+      const response = await api.get('/loki/query_range', {
+        params: {
+          query: '{job="backend"}',
+          limit,
+          start: startTime.toString(),
+          end: endTime.toString()
         }
-      }
-      
-      console.log('⚠️ No real logs found, returning empty result');
-      
-      // Return empty result instead of mock data
-      return {
-        data: {
-          result: [],
-          resultType: 'streams'
-        }
-      };
+      });
+      return response.data;
     } catch (error: any) {
-      console.error('Loki query error:', error);
-      console.error('Error details:', error.response?.data);
-      
-      // Return empty result instead of throwing
-      return {
-        data: {
-          result: [],
-          resultType: 'streams'
-        }
-      };
+      console.error('Loki query error:', error.response?.data || error.message);
+      return { data: { result: [], resultType: 'streams' } };
     }
   }
 
