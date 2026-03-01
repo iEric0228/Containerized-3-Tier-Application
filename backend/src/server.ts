@@ -11,6 +11,7 @@ import promClient from 'prom-client';
 import logger from './config/logger';
 import fs from 'fs';
 import path from 'path';
+import { toAppError } from './types/errors';
 
 // Load environment variables
 dotenv.config();
@@ -386,5 +387,12 @@ if (require.main === module) {
     console.log(`Users API at http://localhost:${PORT}/api/users`);
   });
 }
+
+// Centralized error handling middleware (must be last middleware)
+app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const appError = toAppError(err);
+  logger.error('Unhandled error', { message: appError.message, statusCode: appError.statusCode, url: req.url });
+  res.status(appError.statusCode).json({ success: false, error: appError.message });
+});
 
 export default app;
