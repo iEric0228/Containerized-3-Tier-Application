@@ -103,6 +103,15 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Input validation helper for proxy query parameters
+function validateQueryParam(query: unknown): string | null {
+  if (!query || typeof query !== 'string') return null;
+  if (query.length > 500) return null;
+  // Block shell metacharacters that have no place in PromQL/LogQL
+  if (/[;&|`$]/.test(query)) return null;
+  return query;
+}
+
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -195,7 +204,10 @@ app.get('/metrics', async (req, res) => {
 // Proxy routes for Prometheus
 app.get('/api/prometheus/query', async (req, res) => {
   try {
-    const { query } = req.query;
+    const query = validateQueryParam(req.query.query);
+    if (!query) {
+      return res.status(400).json({ error: 'Invalid or missing query parameter' });
+    }
     console.log('🔍 Prometheus query:', query);
     console.log('🔗 Prometheus URL:', PROMETHEUS_URL);
     
@@ -222,13 +234,12 @@ app.get('/api/prometheus/query', async (req, res) => {
 // Proxy routes for Loki
 app.get('/api/loki/query_range', async (req, res) => {
   try {
-    const { query, limit } = req.query;
-    
+    const { limit } = req.query;
+    const lokiQuery = validateQueryParam(req.query.query) ?? '{job="backend"}';
+
     // Loki requires time range in nanoseconds
     const end = Date.now() * 1000000; // Current time in nanoseconds
     const start = end - (3600 * 1000000000); // 1 hour ago
-    
-    const lokiQuery = String(query || '{job="backend"}');
     
     console.log('🔍 Loki query request:', {
       query: lokiQuery,
