@@ -6,23 +6,31 @@ variable "name_prefix" {
 variable "db_username" {
   description = "Database username"
   type        = string
+  sensitive   = true
 }
 
 variable "db_password" {
   description = "Database password"
   type        = string
+  sensitive   = true
 }
 
-variable "common_tags" {
-  description = "Tags to apply to all resources"
-  type        = map(string)
-  default     = {}
+variable "db_name" {
+  description = "Database name"
+  type        = string
+  default     = "app_db"
 }
 
 variable "grafana_admin_password" {
   description = "Grafana admin password"
   type        = string
   sensitive   = true
+}
+
+variable "common_tags" {
+  description = "Tags to apply to all resources"
+  type        = map(string)
+  default     = {}
 }
 
 variable "rotation_lambda_arn" {
@@ -35,4 +43,10 @@ variable "rotation_days" {
   description = "Number of days between automatic secret rotations"
   type        = number
   default     = 30
+}
+
+variable "recovery_window_days" {
+  description = "Number of days Secrets Manager waits before deleting a secret (0 = immediate, 7-30 = recovery)"
+  type        = number
+  default     = 7
 }

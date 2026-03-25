@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { Gauge } from 'prom-client';
+import logger from './logger';
 
 const pgPoolTotal = new Gauge({
   name: 'pg_pool_total_connections',
@@ -70,20 +71,28 @@ export class DatabaseConnection {
       const client = await this.pool.connect();
       await client.query('SELECT NOW()');
       client.release();
-      console.log('✅ Database connected successfully');
+      logger.debug('Database connected successfully');
       return true;
     } catch (error) {
-      console.error('❌ Database connection failed:', error);
+      logger.error('Database connection failed', { error: String(error) });
       return false;
     }
   }
 
-  // Method to get users
-  public async getUsers() {
+  // Method to get users with pagination
+  public async getUsers(page: number = 1, limit: number = 20) {
+    const offset = (page - 1) * limit;
     const client = await this.pool.connect();
     try {
-      const result = await client.query('SELECT * FROM users ORDER BY created_at DESC');
-      return result.rows;
+      const countResult = await client.query('SELECT COUNT(*) FROM users');
+      const total = parseInt(countResult.rows[0].count, 10);
+
+      const result = await client.query(
+        'SELECT id, username, email, created_at, updated_at FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+        [limit, offset]
+      );
+
+      return { rows: result.rows, total, page, limit };
     } finally {
       client.release();
     }

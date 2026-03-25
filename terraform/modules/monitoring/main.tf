@@ -255,7 +255,7 @@ resource "aws_ecs_task_definition" "loki" {
       transit_encryption_port = 2049
 
       authorization_config {
-        iam = "DISABLED"
+        iam = "ENABLED"
       }
     }
   }
@@ -401,7 +401,7 @@ resource "aws_ecs_task_definition" "prometheus" {
       transit_encryption_port = 2049
 
       authorization_config {
-        iam = "DISABLED"
+        iam = "ENABLED"
       }
     }
   }
@@ -526,7 +526,7 @@ resource "aws_ecs_task_definition" "grafana" {
       transit_encryption_port = 2049
 
       authorization_config {
-        iam = "DISABLED"
+        iam = "ENABLED"
       }
     }
   }

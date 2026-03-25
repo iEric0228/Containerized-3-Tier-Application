@@ -9,17 +9,24 @@ resource "aws_db_subnet_group" "main" {
 }
 
 resource "aws_db_instance" "main" {
-  identifier             = "${var.name_prefix}-db"
-  engine                 = "postgres"
-  instance_class         = "db.t3.micro"
-  db_name                = var.db_name
-  allocated_storage      = 20
-  username               = var.db_username
-  password               = data.aws_secretsmanager_secret_version.db_password.secret_string
-  db_subnet_group_name   = aws_db_subnet_group.main.name
-  vpc_security_group_ids = [var.rds_sg_id]
-  skip_final_snapshot    = true
-  tags                   = var.common_tags
+  identifier              = "${var.name_prefix}-db"
+  engine                  = "postgres"
+  engine_version          = "15.4"
+  instance_class          = "db.t3.micro"
+  db_name                 = var.db_name
+  allocated_storage       = 20
+  username                = var.db_username
+  password                = data.aws_secretsmanager_secret_version.db_password.secret_string
+  db_subnet_group_name    = aws_db_subnet_group.main.name
+  vpc_security_group_ids  = [var.rds_sg_id]
+  storage_encrypted       = true
+  skip_final_snapshot     = var.skip_final_snapshot
+  final_snapshot_identifier = var.skip_final_snapshot ? null : "${var.db_name}-final-${formatdate("YYYYMMDD", timestamp())}"
+  multi_az                = var.multi_az
+  backup_retention_period = var.multi_az ? 7 : 1
+  backup_window           = "03:00-04:00"
+  maintenance_window      = "Mon:04:00-Mon:05:00"
+  tags                    = var.common_tags
 
   lifecycle {
     create_before_destroy = true

@@ -19,6 +19,7 @@
 |------|--------|
 | **Container Engineering** | Multi-stage Docker builds, non-root runtime users, `curl` healthchecks, tuned `.dockerignore` (excludes `node_modules`, build artifacts, secrets) |
 | **Full Observability (LGTM)** | `grafana/otel-lgtm` all-in-one stack (Loki, Grafana, Tempo, Mimir), standalone Prometheus, Promtail with Docker Compose service label relabeling, `postgres-exporter`, custom `pg_pool_*` Gauge metrics exposed via `prom-client` |
+| **Frontend Architecture** | Modular React 19 + TypeScript component architecture (9 focused components), real-time canvas-based performance charts, responsive industrial design system with WCAG AA+ contrast compliance |
 | **Backend Architecture** | Express + TypeScript, singleton DB pool with event-driven metrics, transactional DB initialization (BEGIN/COMMIT/ROLLBACK), centralized `AppError` error handler, input validation on all proxy routes |
 | **Security Hardening** | Nginx CSP without `unsafe-eval`, env-based SSL config (`DB_SSL` / `DB_SSL_REJECT_UNAUTHORIZED`), `trust proxy` for correct per-IP rate limiting, validated PromQL/LogQL query parameters blocking shell metacharacters |
 | **Infrastructure as Code** | Terraform 1.9 with modular structure (VPC, ECS, RDS, ALB, ECR, security, secrets, monitoring), remote S3 backend, environment-based workspaces |
@@ -30,8 +31,8 @@
 
 ```
 ┌─────────────────────┐
-│     End Users       │
-│   (Web Browsers)    │
+│     End Users        │
+│   (Web Browsers)     │
 └──────────┬──────────┘
            │ HTTPS
            ▼
@@ -50,13 +51,13 @@
 │   ─────────────────     │  │   ─────────────────      │
 │   React 19 + TypeScript │  │   Node.js 22 + Express   │
 │   Nginx 1.27-alpine     │  │   TypeScript             │
-│   ErrorBoundary         │  │   prom-client metrics    │
-│   Responsive UI         │  │   winston + Loki logs    │
-│                         │  │   pg connection pool     │
-│   ECS Fargate           │  │                          │
-│   Port: 80              │  │   ECS Fargate            │
-└─────────────────────────┘  │   Port: 3001             │
-                             └──────────┬───────────────┘
+│   9 modular components  │  │   prom-client metrics    │
+│   Canvas live charts    │  │   winston + Loki logs    │
+│   Responsive design     │  │   pg connection pool     │
+│                         │  │                          │
+│   ECS Fargate           │  │   ECS Fargate            │
+│   Port: 80              │  │   Port: 3001             │
+└─────────────────────────┘  └──────────┬───────────────┘
                                         │ SQL (private)
                                         ▼
                              ┌──────────────────────────┐
@@ -123,7 +124,7 @@ curl -X POST http://localhost:3001/api/init-db
 | Frontend | http://localhost:3000 | React dashboard |
 | Backend API | http://localhost:3001/api | REST + health check |
 | Backend metrics | http://localhost:3001/metrics | Prometheus scrape target |
-| Grafana | http://localhost:3002 | Login: `admin` / `admin` |
+| Grafana | http://localhost:3002 | Login: `admin` / value from `.env` |
 | Prometheus | http://localhost:9090 | Targets + query UI |
 | Loki | http://localhost:3100 | Log aggregation |
 | Promtail | http://localhost:9080 | Log shipper status |
@@ -170,6 +171,9 @@ Without this setting, `express-rate-limit` sees the internal Docker bridge IP fo
 **6. `AppError` class with a centralized error handler as the last middleware**
 Rather than repeating `if (error instanceof Error) { ... } else { ... }` in six catch blocks, a single `toAppError(err)` utility normalizes any thrown value and a single Express error-handler middleware logs it and sends the response. New routes get correct error behavior for free.
 
+**7. Modular frontend component architecture**
+The dashboard was decomposed from a single 1200+ line monolith into 9 focused components (Dashboard orchestrator, MetricsBar, HealthGrid, LiveMonitoring, ArchitectureFlow, DevOpsArchitecture, ProjectOverview, ToolchainShowcase, DashboardFooter). Each component owns its own data rendering with props driven from the parent. Canvas-based real-time charts use ResizeObserver for responsive sizing.
+
 ---
 
 ## Project Structure
@@ -180,13 +184,23 @@ Containerized-3-Tier-Application/
 ├── frontend/                        # React 19 + TypeScript SPA
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Dashboard.tsx        # Main observability dashboard
-│   │   │   ├── Dashboard.css        # Styles + responsive breakpoints
+│   │   │   ├── Dashboard.tsx        # Orchestrator: state, data fetching, layout
+│   │   │   ├── Dashboard.css        # Design system: tokens, all component styles
+│   │   │   ├── MetricsBar.tsx       # Live Prometheus metrics display
+│   │   │   ├── HealthGrid.tsx       # Service health status cards
+│   │   │   ├── LiveMonitoring.tsx   # Real-time canvas charts + log stream
+│   │   │   ├── ArchitectureFlow.tsx # 3-tier architecture diagram
+│   │   │   ├── DevOpsArchitecture.tsx # CI/CD pipeline + cloud infra layers
+│   │   │   ├── ProjectOverview.tsx  # Summary, goals, outcomes, benefits
+│   │   │   ├── ToolchainShowcase.tsx # DevOps toolchain grid
+│   │   │   ├── DashboardFooter.tsx  # Footer section
 │   │   │   └── ErrorBoundary.tsx    # React error boundary with retry
 │   │   ├── services/api.ts          # Axios client for backend + Loki/Prometheus
-│   │   ├── types/                   # TypeScript interface definitions
-│   │   └── App.tsx
-│   ├── dockerfile                   # Multi-stage: node builder → nginx:1.27-alpine
+│   │   ├── types/api.interface.ts   # TypeScript interface definitions
+│   │   ├── App.tsx                  # Root app component
+│   │   ├── App.css                  # Global base styles
+│   │   └── index.css                # Minimal reset
+│   ├── Dockerfile                   # Multi-stage: node builder → nginx:1.27-alpine
 │   ├── nginx.conf.template          # Nginx config with CSP, proxy, health endpoint
 │   └── .dockerignore
 │
@@ -195,12 +209,14 @@ Containerized-3-Tier-Application/
 │   │   ├── config/
 │   │   │   ├── database.ts          # Singleton pg.Pool + pg_pool_* Prometheus metrics
 │   │   │   └── logger.ts            # Winston logger with Loki transport
+│   │   ├── services/
+│   │   │   └── api.ts               # API route handlers
 │   │   ├── types/
 │   │   │   └── errors.ts            # AppError class + toAppError() helper
 │   │   └── server.ts                # Express app: routes, middleware, proxy endpoints
 │   ├── database/
 │   │   └── 01_init.sql              # Schema + seed data
-│   ├── dockerfile                   # Multi-stage: node builder → node:22-alpine
+│   ├── Dockerfile                   # Multi-stage: node builder → node:22-alpine
 │   └── .env.example
 │
 ├── monitoring/                      # Observability configuration
@@ -228,6 +244,14 @@ Containerized-3-Tier-Application/
 │       ├── ci-cd.yml                # Main pipeline (build, test, deploy, destroy)
 │       └── docker-security.yml      # Docker Scout CVE scanning
 │
+├── scripts/                         # Build and utility scripts
+│   ├── build-and-push.sh            # ECR image build + push
+│   ├── cleanup-repo.sh              # Repository cleanup utility
+│   └── configure-prometheus.sh      # Prometheus configuration helper
+│
+├── tests/                           # Integration tests
+│   └── integration.test.ts          # API endpoint integration tests
+│
 ├── docker-compose.yml               # Full local stack (8 services)
 ├── .env.example                     # Root env template
 └── README.md
@@ -241,7 +265,13 @@ Infrastructure and deployment are fully automated via GitHub Actions. No manual 
 
 ### Setup (one-time)
 
-1. Add AWS credentials and Terraform state bucket to GitHub repository secrets
+1. Add AWS credentials and Terraform state bucket to GitHub repository secrets:
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   - `TF_STATE_BUCKET` (S3 bucket for Terraform state)
+   - `POSTGRES_PASSWORD` (database credential)
+   - `GRAFANA_ADMIN_PASSWORD` (Grafana login)
+
 2. Create a `production` GitHub Environment with required reviewer(s):
    **Repository → Settings → Environments → New environment → `production`**
 
@@ -258,6 +288,38 @@ Trigger the pipeline from the **Actions** tab → **CI/CD Pipeline** → **Run w
 
 The pipeline runs: lint → test → Docker build → Terraform plan → **approval gate (prod only)** → Terraform apply → ECS deploy → smoke test → optional destroy.
 
+### Terraform modules
+
+| Module | Resources |
+|--------|-----------|
+| **VPC** | VPC, public/private subnets (Multi-AZ), NAT gateway, route tables, internet gateway |
+| **ECS** | Fargate cluster, task definitions (frontend + backend), services, auto-scaling |
+| **RDS** | PostgreSQL 15 instance, subnet group, parameter group, automated backups |
+| **ALB** | Application Load Balancer, target groups, listeners, health checks |
+| **ECR** | Private container registries (frontend + backend), lifecycle policies |
+| **security** | Security groups (ALB, ECS, RDS), IAM roles + policies |
+| **secret** | AWS Secrets Manager for database credentials |
+| **monitoring** | CloudWatch log groups for ECS tasks |
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Frontend | React + TypeScript | 19.x / 5.x |
+| Backend | Node.js + Express + TypeScript | 22.x / 4.x / 5.x |
+| Database | PostgreSQL | 15 |
+| Containerization | Docker (multi-stage builds) | 20.10+ |
+| Orchestration | Docker Compose (local) / AWS ECS Fargate (prod) | 2.x / - |
+| IaC | Terraform | 1.9 |
+| CI/CD | GitHub Actions | - |
+| Metrics | Prometheus + postgres-exporter | 2.53 |
+| Logs | Loki + Promtail | 3.1 |
+| Dashboards | Grafana (via otel-lgtm) | 11.x |
+| Tracing | Tempo (via otel-lgtm) | - |
+| Web Server | Nginx | 1.27-alpine |
+
 ---
 
 ## Author
@@ -267,7 +329,3 @@ The pipeline runs: lint → test → Docker build → Terraform plan → **appro
 - GitHub: [@iEric0228](https://github.com/iEric0228)
 - LinkedIn: [Eric Chiu](https://www.linkedin.com/in/eric-chiu-a610553a3/)
 - Email: ericchiu0228@gmail.com
-
----
-
-*Built with React 19, Node.js 22, PostgreSQL 15, Docker, Terraform, Prometheus, Grafana LGTM, and GitHub Actions*

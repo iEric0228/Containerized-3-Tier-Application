@@ -1,23 +1,32 @@
 # Multi-stage build for optimized production React app
 FROM node:22-alpine AS builder
 
+# Install security updates
+RUN apk upgrade --no-cache
+
 # Set working directory
 WORKDIR /app
 
 # Copy package files for dependency installation
 COPY package*.json ./
+COPY tsconfig.json ./
 
 # Install dependencies
 RUN npm ci && npm cache clean --force
 
-# Copy source code
-COPY . .
+# Copy only source files needed for build
+COPY src/ ./src/
+COPY public/ ./public/
 
 # Build the React application
 RUN npm run build
 
 # Production stage with Nginx (pinned for reproducibility)
 FROM nginx:1.27-alpine AS production
+
+# Install security updates and wget for health checks
+RUN apk upgrade --no-cache && \
+    apk add --no-cache wget
 
 # Run as non-root user for security
 RUN addgroup -g 1001 -S nginx-app && \
@@ -39,6 +48,6 @@ USER nginx-app
 EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost/health || exit 1
+  CMD wget -qO- http://localhost/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

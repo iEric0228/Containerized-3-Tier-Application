@@ -37,3 +37,15 @@ variable "common_tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
 }
+
+variable "skip_final_snapshot" {
+  description = "Whether to skip the final snapshot when destroying the DB instance"
+  type        = bool
+  default     = true
+}
+
+variable "multi_az" {
+  description = "Whether to enable Multi-AZ deployment for high availability"
+  type        = bool
+  default     = false
+}

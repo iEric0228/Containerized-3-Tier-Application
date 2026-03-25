@@ -18,3 +18,9 @@ variable "common_tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
 }
+
+variable "certificate_arn" {
+  description = "ARN of the ACM certificate for HTTPS. Leave empty to use HTTP only."
+  type        = string
+  default     = ""
+}

@@ -1,7 +1,7 @@
 # ECR Repositories for container images
 resource "aws_ecr_repository" "frontend" {
   name                 = "${var.name_prefix}-frontend"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
   force_delete         = true
 
   image_scanning_configuration {
@@ -20,7 +20,7 @@ resource "aws_ecr_repository" "frontend" {
 
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.name_prefix}-backend"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
   force_delete         = true
 
   image_scanning_configuration {

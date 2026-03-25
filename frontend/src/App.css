@@ -1,40 +1,6 @@
-/* Import Professional Typography */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+/* App-level styles — defer all design tokens to Dashboard.css */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
-/* CSS Custom Properties - DevOps Theme */
-:root {
-  /* Space Tech Color Palette */
-  --bg-primary: #0B0B10;
-  --bg-secondary: #1E293B;
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --accent-blue: #3B82F6;
-  --accent-cyan: #06B6D4;
-  --accent-purple: #7C3AED;
-  --success-green: #10B981;
-  --warning-orange: #F59E0B;
-  --error-red: #EF4444;
-  
-  /* Glassmorphism Effects */
-  --glass-bg: rgba(255, 255, 255, 0.08);
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  
-  /* DevOps Gradients */
-  --gradient-primary: linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-cyan) 100%);
-  --gradient-secondary: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%);
-  --gradient-success: linear-gradient(135deg, var(--success-green) 0%, var(--accent-cyan) 100%);
-  
-  /* Animation Variables */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-smooth: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 500ms cubic-bezier(0.4, 0, 0.2, 1);
-  
-  /* Focus Ring for Accessibility */
-  --focus-ring: 0 0 0 3px rgba(59, 130, 246, 0.12);
-}
-
-/* Global Reset & Base Styles */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -46,390 +12,39 @@ html {
 }
 
 body {
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0a0e17;
+  color: #f1f5f9;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Main App Container */
 .App {
   position: relative;
   min-height: 100vh;
-  background: var(--bg-primary);
+  background: #0a0e17;
   overflow-x: hidden;
 }
 
-/* Animated Background Pattern */
-.App::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: 
-    radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.05) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(124, 58, 237, 0.05) 0%, transparent 50%),
-    radial-gradient(circle at 40% 40%, rgba(6, 182, 212, 0.05) 0%, transparent 50%);
-  z-index: -1;
-  animation: backgroundShift 20s ease-in-out infinite;
-}
-
-@keyframes backgroundShift {
-  0%, 100% { transform: translateX(0) translateY(0); }
-  33% { transform: translateX(-2%) translateY(-1%); }
-  66% { transform: translateX(1%) translateY(-2%); }
-}
-
-/* Header Styling */
-.App-header {
-  position: relative;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  text-align: center;
-}
-
-/* Logo Container */
-.App-logo {
-  height: 15vmin;
-  max-height: 200px;
-  min-height: 120px;
-  pointer-events: none;
-  filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.3));
-  transition: all var(--transition-smooth);
-}
-
-.App-logo:hover {
-  filter: drop-shadow(0 0 30px rgba(59, 130, 246, 0.5));
-  transform: scale(1.05);
-}
-
-/* Controlled Logo Animation */
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: logoFloat 6s ease-in-out infinite;
-  }
-}
-
-@keyframes logoFloat {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-10px) rotate(2deg); }
-}
-
-/* Typography Hierarchy */
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: 'Outfit', sans-serif;
   font-weight: 600;
   line-height: 1.2;
   margin: 0;
 }
 
-.hero-title {
-  font-size: clamp(2.5rem, 8vw, 4rem);
-  font-weight: 700;
-  background: var(--gradient-primary);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-bottom: 1rem;
-  animation: titleGlow 3s ease-in-out infinite alternate;
-}
-
-@keyframes titleGlow {
-  0% { filter: brightness(1); }
-  100% { filter: brightness(1.1); }
-}
-
-.hero-subtitle {
-  font-size: clamp(1.1rem, 3vw, 1.4rem);
-  color: var(--text-secondary);
-  margin-bottom: 2rem;
-  max-width: 600px;
-  animation: fadeInUp 0.8s ease-out 0.3s both;
-}
-
-/* Glassmorphism Cards */
-.glass-card {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 20px;
-  padding: 2rem;
-  box-shadow: var(--glass-shadow);
-  transition: all var(--transition-smooth);
-  cursor: pointer;
-}
-
-.glass-card:hover {
-  transform: translateY(-8px);
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.15),
-    0 0 0 1px rgba(255, 255, 255, 0.05);
-}
-
-/* DevOps Skill Badges */
-.skill-badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 1rem;
-  margin: 2rem 0;
-  animation: fadeInUp 0.8s ease-out 0.6s both;
-}
-
-.skill-badge {
-  background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(10px);
-  padding: 0.5rem 1rem;
-  border-radius: 25px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--text-primary);
-  transition: all var(--transition-fast);
-  position: relative;
-  overflow: hidden;
-}
-
-.skill-badge::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: var(--gradient-primary);
-  opacity: 0;
-  transition: all var(--transition-smooth);
-  z-index: -1;
-}
-
-.skill-badge:hover::before {
-  left: 0;
-  opacity: 0.1;
-}
-
-.skill-badge:hover {
-  transform: translateY(-2px) scale(1.05);
-  border-color: var(--accent-blue);
-  color: var(--text-primary);
-}
-
-/* CTA Buttons */
-.cta-button {
-  background: var(--gradient-primary);
-  border: none;
-  padding: 1rem 2rem;
-  border-radius: 12px;
-  font-family: 'Space Grotesk', sans-serif;
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: white;
-  cursor: pointer;
-  transition: all var(--transition-smooth);
-  position: relative;
-  overflow: hidden;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 1rem;
-}
-
-.cta-button::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-purple) 100%);
-  transition: left var(--transition-smooth);
-  z-index: -1;
-}
-
-.cta-button:hover::before {
-  left: 0;
-}
-
-.cta-button:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 24px rgba(59, 130, 246, 0.25);
-}
-
-.cta-button:active {
-  transform: translateY(-1px);
-}
-
-.cta-button:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-/* Status Indicators */
-.status-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-  color: var(--success-green);
-  margin-top: 1rem;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--success-green);
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.2); }
-}
-
-/* Links */
-.App-link {
-  color: var(--accent-cyan);
-  text-decoration: none;
-  transition: color var(--transition-fast);
-  position: relative;
-}
-
-.App-link::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 0;
-  height: 2px;
-  background: var(--gradient-primary);
-  transition: width var(--transition-smooth);
-}
-
-.App-link:hover {
-  color: var(--text-primary);
-}
-
-.App-link:hover::after {
-  width: 100%;
-}
-
-/* Animations */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-/* Accessibility & Reduced Motion */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-  
-  .App::before {
-    animation: none;
-  }
-  
-  .App-logo {
-    animation: none;
-  }
-}
-
-/* High Contrast Mode Support */
-@media (prefers-contrast: high) {
-  :root {
-    --glass-bg: rgba(255, 255, 255, 0.2);
-    --glass-border: rgba(255, 255, 255, 0.4);
-  }
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .App-header {
-    padding: 1rem;
-    min-height: 100vh;
-  }
-  
-  .skill-badges {
-    gap: 0.5rem;
-    margin: 1.5rem 0;
-  }
-  
-  .skill-badge {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.8rem;
-  }
-  
-  .cta-button {
-    padding: 0.8rem 1.5rem;
-    font-size: 1rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .hero-title {
-    font-size: 2rem;
-  }
-  
-  .hero-subtitle {
-    font-size: 1rem;
-    margin-bottom: 1.5rem;
-  }
-  
-  .glass-card {
-    padding: 1.5rem;
-    border-radius: 16px;
-  }
-}
-
-/* Print Styles */
+/* Print */
 @media print {
-  .App {
-    background: white;
-    color: black;
-  }
-  
-  .App::before {
-    display: none;
-  }
-  
-  .glass-card {
-    background: white;
-    border: 1px solid #ccc;
-    box-shadow: none;
+  .App { background: white; color: black; }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -7,27 +7,27 @@ services:
     image: postgres:15-alpine           # Lightweight PostgreSQL image
     container_name: postgres
     environment:                        # Database configuration
-      POSTGRES_DB: app_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    ports: ["5432:5432"]               # Host:Container port mapping
+      POSTGRES_DB: ${POSTGRES_DB:-app_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports: ["127.0.0.1:5432:5432"]      # Bind to localhost only
     volumes:                           # Persistent data storage
       - postgres_data:/var/lib/postgresql/data
       - ./backend/database/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql
     healthcheck:                       # Database health monitoring
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
     networks:
       - app-network
     restart: unless-stopped
 
   # PostgreSQL metrics exporter
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.16.0
     container_name: postgres-exporter
     environment:
-      - DATA_SOURCE_NAME=postgresql://postgres:password@postgres:5432/app_db?sslmode=disable
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-app_db}?sslmode=disable
     ports:
-      - "9187:9187"
+      - "127.0.0.1:9187:9187"
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,10 +45,11 @@ services:
       - NODE_ENV=production
       - DB_HOST=postgres               # Service-to-service communication
       - DB_PORT=5432
-      - DB_NAME=app_db
-      - DB_USER=postgres
-      - DB_PASSWORD=password
-      - DB_SSL=false
+      - DB_NAME=${POSTGRES_DB:-app_db}
+      - DB_USER=${POSTGRES_USER:-postgres}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_SSL=false                    # Local only; production uses DB_SSL=true with RDS SSL
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
       - LOKI_HOST=http://grafana-lgtm:3100  # Send logs to Loki
       - LOKI_URL=http://grafana-lgtm:3100
     ports:
@@ -80,10 +81,10 @@ services:
 
   # Standalone Prometheus
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.53.0
     container_name: prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -99,10 +100,10 @@ services:
 
   # Promtail for log collection
   promtail:
-    image: grafana/promtail:latest
+    image: grafana/promtail:3.1.0
     container_name: promtail
     ports:
-      - "9080:9080"
+      - "127.0.0.1:9080:9080"
     volumes:
       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -117,16 +118,16 @@ services:
 
   # Grafana LGTM Stack (includes Grafana, Loki, Tempo, Mimir)
   grafana-lgtm:
-    image: grafana/otel-lgtm:latest
+    image: grafana/otel-lgtm:0.7.1
     container_name: grafana-lgtm
     ports:
       - "3002:3000"   # Grafana UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
       - "3100:3100"   # Loki
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
     volumes:

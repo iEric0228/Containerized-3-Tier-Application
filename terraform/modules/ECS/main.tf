@@ -357,7 +357,7 @@ resource "aws_ecs_service" "frontend" {
     rollback = true
   }
 
-  enable_execute_command = true
+  enable_execute_command = var.enable_execute_command
 
   depends_on = [var.alb_listener]
 
@@ -400,7 +400,7 @@ resource "aws_ecs_service" "backend" {
     rollback = true
   }
 
-  enable_execute_command = true
+  enable_execute_command = var.enable_execute_command
 
   depends_on = [var.alb_listener]
 

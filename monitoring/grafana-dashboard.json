@@ -1,90 +1,268 @@
 {
-  "dashboard": {
-    "title": "3-Tier Application Overview",
-    "tags": ["3-tier", "monitoring"],
-    "timezone": "browser",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Backend API - HTTP Requests Total",
-        "type": "graph",
-        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
-        "targets": [
-          {
-            "expr": "rate(http_requests_total{service=\"backend\"}[5m])",
-            "legendFormat": "{{method}} {{route}} - {{status_code}}",
-            "refId": "A"
+  "title": "3-Tier Application Overview",
+  "tags": ["3-tier", "monitoring"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Requests Rate",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{service=\"backend\"}[5m])",
+          "legendFormat": "{{method}} {{route}} - {{status_code}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15
           }
-        ],
-        "datasource": "Prometheus"
-      },
-      {
-        "id": 2,
-        "title": "Backend API - Request Duration",
-        "type": "graph",
-        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service=\"backend\"}[5m]))",
-            "legendFormat": "p95 - {{method}} {{route}}",
-            "refId": "A"
-          },
-          {
-            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{service=\"backend\"}[5m]))",
-            "legendFormat": "p50 - {{method}} {{route}}",
-            "refId": "B"
-          }
-        ],
-        "datasource": "Prometheus"
-      },
-      {
-        "id": 3,
-        "title": "Backend Logs",
-        "type": "logs",
-        "gridPos": {"x": 0, "y": 8, "w": 24, "h": 10},
-        "targets": [
-          {
-            "expr": "{service=\"backend\"}",
-            "refId": "A"
-          }
-        ],
-        "datasource": "Loki"
-      },
-      {
-        "id": 4,
-        "title": "Node.js Memory Usage",
-        "type": "graph",
-        "gridPos": {"x": 0, "y": 18, "w": 12, "h": 8},
-        "targets": [
-          {
-            "expr": "process_resident_memory_bytes{service=\"backend\"}",
-            "legendFormat": "Backend Memory",
-            "refId": "A"
-          }
-        ],
-        "datasource": "Prometheus"
-      },
-      {
-        "id": 5,
-        "title": "Node.js CPU Usage",
-        "type": "graph",
-        "gridPos": {"x": 12, "y": 18, "w": 12, "h": 8},
-        "targets": [
-          {
-            "expr": "rate(process_cpu_user_seconds_total{service=\"backend\"}[5m])",
-            "legendFormat": "User CPU",
-            "refId": "A"
-          },
-          {
-            "expr": "rate(process_cpu_system_seconds_total{service=\"backend\"}[5m])",
-            "legendFormat": "System CPU",
-            "refId": "B"
-          }
-        ],
-        "datasource": "Prometheus"
+        },
+        "overrides": []
       }
-    ],
-    "schemaVersion": 36,
-    "version": 1
-  }
+    },
+    {
+      "id": 2,
+      "title": "Request Duration (p50 / p95)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service=\"backend\"}[5m]))",
+          "legendFormat": "p95 - {{method}} {{route}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{service=\"backend\"}[5m]))",
+          "legendFormat": "p50 - {{method}} {{route}}",
+          "refId": "B"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Total Requests by Status",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 8, "w": 8, "h": 5},
+      "targets": [
+        {
+          "expr": "sum(http_requests_total{service=\"backend\"}) by (status_code)",
+          "legendFormat": "{{status_code}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 100},
+              {"color": "red", "value": 500}
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Backend Uptime",
+      "type": "stat",
+      "gridPos": {"x": 8, "y": 8, "w": 8, "h": 5},
+      "targets": [
+        {
+          "expr": "up{job=\"backend-api\"}",
+          "legendFormat": "Backend",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"1": {"text": "UP", "color": "green"}}},
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}}}
+          ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Active Connections (PostgreSQL)",
+      "type": "stat",
+      "gridPos": {"x": 16, "y": 8, "w": 8, "h": 5},
+      "targets": [
+        {
+          "expr": "pg_stat_activity_count{job=\"postgres\"}",
+          "legendFormat": "Connections",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 90}
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Node.js Memory Usage",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 13, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{service=\"backend\"}",
+          "legendFormat": "Resident Memory",
+          "refId": "A"
+        },
+        {
+          "expr": "nodejs_heap_size_used_bytes{service=\"backend\"}",
+          "legendFormat": "Heap Used",
+          "refId": "B"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Node.js CPU Usage",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 13, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "rate(process_cpu_user_seconds_total{service=\"backend\"}[5m])",
+          "legendFormat": "User CPU",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(process_cpu_system_seconds_total{service=\"backend\"}[5m])",
+          "legendFormat": "System CPU",
+          "refId": "B"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Node.js Event Loop Lag",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 21, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "nodejs_eventloop_lag_seconds{service=\"backend\"}",
+          "legendFormat": "Event Loop Lag",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "PostgreSQL - Database Size",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 21, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "pg_database_size_bytes{job=\"postgres\"}",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "title": "Backend Logs",
+      "type": "logs",
+      "gridPos": {"x": 0, "y": 29, "w": 24, "h": 10},
+      "targets": [
+        {
+          "expr": "{container=\"backend\"}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
 }

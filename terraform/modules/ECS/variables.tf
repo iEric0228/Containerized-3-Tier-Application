@@ -101,3 +101,9 @@ variable "grafana_admin_password_secret_arn" {
   type        = string
   default     = ""
 }
+
+variable "enable_execute_command" {
+  description = "Enable ECS Exec for debugging. Should be false in production."
+  type        = bool
+  default     = false
+}

@@ -56,13 +56,14 @@ jobs:
             type=raw,value=latest
             type=raw,value=main
 
-      - name: Build and Push Docker image
+      - name: Build Docker image (local)
         id: build
         uses: docker/build-push-action@v6
         with:
           context: ./${{ matrix.component }}
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: false
+          load: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -77,7 +78,6 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           only-severities: critical,high
           exit-code: true
-        continue-on-error: true
 
       - name: Generate SBOM with Docker Scout
         uses: docker/scout-action@v1
@@ -99,10 +99,10 @@ jobs:
         with:
           command: compare
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
           exit-code: false
 
-      - name: Push Docker image (on main branch)
+      - name: Push Docker image
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v6
         with:
@@ -113,8 +113,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          sbom: true
-          provenance: true
 
 
   security-summary:

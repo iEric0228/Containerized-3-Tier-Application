@@ -25,8 +25,7 @@ const PORT = process.env.PORT || 3001;
 const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://prometheus:9090';
 const LOKI_URL = process.env.LOKI_URL || process.env.LOKI_HOST || 'http://grafana-lgtm:3100';
 
-console.log(`📊 Prometheus URL: ${PROMETHEUS_URL}`);
-console.log(`📋 Loki URL: ${LOKI_URL}`);
+logger.info('Monitoring URLs configured', { prometheus: PROMETHEUS_URL, loki: LOKI_URL });
 
 // Start collecting default metrics (CPU, memory, etc.)
 collectDefaultMetrics();
@@ -48,26 +47,15 @@ const httpRequestDuration = new promClient.Histogram({
 app.use((req, res, next) => {
   const start = Date.now();
   
-  // Log incoming requests
-  logger.info('📨 Incoming request', {
-    method: req.method,
-    url: req.url,
-    ip: req.ip,
-    userAgent: req.get('User-Agent'),
-    timestamp: new Date().toISOString()
-  });
-  
   res.on('finish', () => {
     const duration = (Date.now() - start) / 1000;
     const route = req.route?.path || req.path;
-    
-    // Log request completion
-    logger.info('📤 Request completed', {
+
+    logger.info('Request completed', {
       method: req.method,
-      route: route,
+      route,
       statusCode: res.statusCode,
-      responseTime: `${duration}s`,
-      timestamp: new Date().toISOString()
+      duration: `${duration}s`,
     });
     
     httpRequestDuration
@@ -86,7 +74,14 @@ const db = DatabaseConnection.getInstance();
 
 // Security middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : 'http://localhost:3000',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
 app.use(compression());
 
 // Rate limiting - 100 requests/minute per IP
@@ -116,37 +111,38 @@ function validateQueryParam(query: unknown): string | null {
 }
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
   const startTime = Date.now();
-  logger.info('Health check requested', { 
-    endpoint: '/api/health', 
+  logger.info('Health check requested', {
+    endpoint: '/api/health',
     ip: req.ip,
     userAgent: req.get('User-Agent'),
     method: req.method
   });
-  
+
   const dbHealthy = await db.testConnection();
   const responseTime = Date.now() - startTime;
-  
+
   if (dbHealthy) {
-    logger.info('Health check completed successfully', { 
+    logger.info('Health check completed successfully', {
       database: 'connected',
       responseTime: `${responseTime}ms`,
       status: 'healthy'
     });
   } else {
-    logger.error('Health check failed - database disconnected', { 
+    logger.error('Health check failed - database disconnected', {
       database: 'disconnected',
       responseTime: `${responseTime}ms`,
       status: 'unhealthy'
     });
   }
-  
-  res.json({
+
+  const statusCode = dbHealthy ? 200 : 503;
+  res.status(statusCode).json({
     status: dbHealthy ? 'healthy' : 'unhealthy',
     database: dbHealthy ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
@@ -156,197 +152,167 @@ app.get('/api/health', async (req, res) => {
 });
 
 // Root API endpoint
-app.get('/api', (req, res) => {
-  const requestStart = Date.now();
-  
-  logger.info('🔌 API root endpoint accessed', { 
-    endpoint: '/api', 
-    ip: req.ip,
-    userAgent: req.get('User-Agent'),
-    method: req.method,
-    timestamp: new Date().toISOString()
-  });
-  
-  const responseData = {
+app.get('/api', (_req, res) => {
+  res.json({
     message: 'Backend API is running',
     environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     version: '1.0.0',
     status: 'operational'
-  };
-  
-  const responseTime = Date.now() - requestStart;
-  
-  logger.info('✅ API root response sent', {
-    endpoint: '/api',
-    responseTime: `${responseTime}ms`,
-    statusCode: 200
   });
-  
-  res.json(responseData);
 });
 
-// Metrics endpoint for Prometheus
+// Metrics endpoint for Prometheus scraping.
+// In production, port 3001 must NOT be publicly accessible (private subnet only).
+// Prometheus scrapes this endpoint from within the VPC.
 app.get('/metrics', async (req, res) => {
   try {
     res.set('Content-Type', promClient.register.contentType);
     const metrics = await promClient.register.metrics();
     res.end(metrics);
   } catch (error: unknown) {
-    if (error instanceof Error) {
-      console.error('Error serving metrics:', error.message);
-      res.status(500).end('Error generating metrics');
-    } else {
-      console.error('Unknown error occurred while serving metrics:', error);
-      res.status(500).end('Unknown error occurred');
-    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Error serving metrics', { error: message });
+    res.status(500).end('Error generating metrics');
   }
 });
 
-// Proxy routes for Prometheus
-app.get('/api/prometheus/query', async (req, res) => {
+// Internal-only middleware: block monitoring proxy routes from external requests.
+// Primary defense is network-level: in production, port 3001 is in a private subnet
+// behind the ALB/nginx. This Referer check is a secondary defense-in-depth layer.
+const internalOnly = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (process.env.NODE_ENV === 'production') {
+    const referer = req.get('referer') || '';
+    const origin = req.get('origin') || '';
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      : ['http://localhost:3000'];
+    const isAllowed = allowedOrigins.some(o => referer.startsWith(o) || origin === o);
+    if (!isAllowed) {
+      logger.warn('Blocked external proxy request', { path: req.path, referer, origin });
+      return res.status(403).json({ error: 'Access denied' });
+    }
+  }
+  next();
+};
+
+// Proxy routes for Prometheus (internal only)
+app.get('/api/prometheus/query', internalOnly, async (req, res) => {
   try {
     const query = validateQueryParam(req.query.query);
     if (!query) {
       return res.status(400).json({ error: 'Invalid or missing query parameter' });
     }
-    console.log('🔍 Prometheus query:', query);
-    console.log('🔗 Prometheus URL:', PROMETHEUS_URL);
-    
+    logger.debug('Prometheus query', { query });
+
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, {
       params: { query },
       timeout: 5000
     });
-    
-    console.log('✅ Prometheus response:', JSON.stringify(response.data, null, 2));
+
     res.json(response.data);
   } catch (error: unknown) {
-    if (error instanceof Error) {
-      console.error('❌ Prometheus proxy error:', error.message);
-      const axiosError = error as { response?: { data?: unknown } };
-      console.error('Error details:', axiosError.response?.data);
-      res.status(500).json({ error: 'Failed to query Prometheus', details: error.message });
-    } else {
-      console.error('❌ Prometheus proxy error:', error);
-      res.status(500).json({ error: 'Unknown error occurred' });
-    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Prometheus proxy error', { error: message });
+    res.status(500).json({ error: 'Failed to query Prometheus' });
   }
 });
 
-// Proxy routes for Loki
-app.get('/api/loki/query_range', async (req, res) => {
+// Proxy routes for Loki (internal only)
+app.get('/api/loki/query_range', internalOnly, async (req, res) => {
   try {
     const { limit } = req.query;
     const lokiQuery = validateQueryParam(req.query.query) ?? '{job="backend"}';
 
     // Loki requires time range in nanoseconds
-    const end = Date.now() * 1000000; // Current time in nanoseconds
+    const end = Date.now() * 1000000;
     const start = end - (3600 * 1000000000); // 1 hour ago
-    
-    console.log('🔍 Loki query request:', {
-      query: lokiQuery,
-      limit: limit || 100,
-      start,
-      end,
-      lokiUrl: LOKI_URL
-    });
-    
-    // Use URLSearchParams for proper encoding
+
     const params = new URLSearchParams();
     params.append('query', lokiQuery);
     params.append('limit', String(limit || 100));
     params.append('start', String(start));
     params.append('end', String(end));
-    
+
     const response = await axios.get(`${LOKI_URL}/loki/api/v1/query_range?${params.toString()}`, {
       timeout: 5000
     });
-    
-    console.log('✅ Loki query successful, streams found:', response.data.data?.result?.length || 0);
-    
+
     res.json(response.data);
   } catch (error: unknown) {
-    if (error instanceof Error) {
-      console.error('❌ Loki proxy error:', error.message);
-      const axiosError = error as { response?: { data?: unknown } };
-      console.error('Loki error details:', axiosError.response?.data);
-      res.status(500).json({ 
-        error: 'Failed to query Loki',
-        details: axiosError.response?.data || error.message 
-      });
-    } else {
-      console.error('❌ Loki proxy error:', error);
-      res.status(500).json({ error: 'Unknown error occurred' });
-    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Loki proxy error', { error: message });
+    res.status(500).json({ error: 'Failed to query Loki' });
   }
 });
 
-// Health check endpoint (now includes DB check)
-app.get('/health', async (req, res) => {
+// Container health check (lightweight, used by Docker/ECS healthcheck)
+app.get('/health', async (_req, res) => {
   const dbHealthy = await db.testConnection();
-  
-  res.status(dbHealthy ? 200 : 503).json({ 
+  res.status(dbHealthy ? 200 : 503).json({
     status: dbHealthy ? 'healthy' : 'unhealthy',
     database: dbHealthy ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
   });
 });
 
 
-// API route with database
+// API route with database (paginated)
 app.get('/api/users', async (req, res) => {
   try {
-    logger.info('Fetching users from database');
-    const users = await db.getUsers();
-    logger.info(`Retrieved ${users.length} users`);
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+
+    logger.info('Fetching users from database', { page, limit });
+    const { rows, total, page: currentPage, limit: currentLimit } = await db.getUsers(page, limit);
+    logger.info(`Retrieved ${rows.length} of ${total} users`);
     res.json({
       success: true,
-      data: users,
-      count: users.length
+      data: rows,
+      count: rows.length,
+      total,
+      page: currentPage,
+      limit: currentLimit,
+      totalPages: Math.ceil(total / currentLimit)
     });
   } catch (error: unknown) {
-    if (error instanceof Error) {
-      logger.error('Database error:', error.message);
-      console.error('Database error:', error.message);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch users'
-      });
-    } else {
-      logger.error('Unknown database error:', error);
-      console.error('Unknown database error:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Unknown error occurred'
-      });
-    }
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('Database error fetching users', { error: message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users'
+    });
   }
 });
 
-// Database initialization endpoint
+// Database initialization endpoint - disabled in production
 app.post('/api/init-db', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    logger.warn('Database init endpoint blocked in production', { ip: req.ip });
+    return res.status(403).json({ success: false, error: 'Not available in production' });
+  }
+
   const pool = db.getPool();
   const client = await pool.connect();
   try {
-    logger.info('🔧 Initializing database schema...');
+    logger.info('Initializing database schema...');
 
     const sqlPath = path.join(__dirname, '../database/01_init.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
 
     await client.query('BEGIN');
-    logger.info('📄 Running SQL initialization script');
+    logger.info('Running SQL initialization script');
     await client.query(sql);
     await client.query('COMMIT');
 
-    logger.info('✅ Database schema initialized successfully');
+    logger.info('Database schema initialized successfully');
     res.json({ success: true, message: 'Database initialized successfully' });
   } catch (error: unknown) {
     await client.query('ROLLBACK');
     const message = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('❌ Database initialization failed, rolled back:', message);
-    res.status(500).json({ success: false, error: 'Failed to initialize database', details: message });
+    logger.error('Database initialization failed, rolled back:', message);
+    res.status(500).json({ success: false, error: 'Failed to initialize database' });
   } finally {
     client.release();
   }
@@ -354,38 +320,37 @@ app.post('/api/init-db', async (req, res) => {
 
 // Only start server if this file is run directly (not imported)
 if (require.main === module) {
-  app.listen(PORT, () => {
-    logger.info('🚀 Server startup successful', {
+  const server = app.listen(PORT, () => {
+    logger.info('Server startup successful', {
       port: PORT,
       environment: process.env.NODE_ENV || 'development',
-      timestamp: new Date().toISOString(),
       nodeVersion: process.version,
-      platform: process.platform
     });
-    
-    logger.info('📊 Available endpoints', {
-      metrics: `http://localhost:${PORT}/metrics`,
-      health: `http://localhost:${PORT}/api/health`,
-      api: `http://localhost:${PORT}/api`,
-      users: `http://localhost:${PORT}/api/users`,
-      prometheus: `http://localhost:${PORT}/api/prometheus/query`,
-      loki: `http://localhost:${PORT}/api/loki/query_range`
-    });
-    
-    // Log initial system status
-    setTimeout(() => {
-      logger.info('💾 System resource status', {
-        uptime: process.uptime(),
-        memoryUsage: process.memoryUsage(),
-        cpuUsage: process.cpuUsage()
-      });
-    }, 1000);
-    
-    console.log(` Server running on port ${PORT}`);
-    console.log(` Metrics available at http://localhost:${PORT}/metrics`);
-    console.log(` Health check at http://localhost:${PORT}/health`);
-    console.log(`Users API at http://localhost:${PORT}/api/users`);
   });
+
+  // Graceful shutdown handler
+  const shutdown = (signal: string) => {
+    logger.info(`${signal} received, shutting down gracefully`);
+    server.close(async () => {
+      logger.info('HTTP server closed');
+      try {
+        await db.getPool().end();
+        logger.info('Database pool closed');
+      } catch (err) {
+        logger.error('Error closing database pool', { error: String(err) });
+      }
+      process.exit(0);
+    });
+
+    // Force exit after 10s if graceful shutdown stalls
+    setTimeout(() => {
+      logger.error('Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 // Centralized error handling middleware (must be last middleware)

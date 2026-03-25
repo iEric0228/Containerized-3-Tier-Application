@@ -38,7 +38,7 @@ on:
         default: false
         type: boolean
       force_destroy_rds:
-        description: 'Force destroy RDS without final snapshot (USE WITH CAUTION)'
+        description: 'Force destroy RDS without final snapshot (dev only, blocked in prod)'
         required: false
         default: false
         type: boolean
@@ -65,6 +65,12 @@ jobs:
     name: Configuration Summary
     runs-on: ubuntu-latest
     steps:
+      - name: Block force_destroy_rds in production
+        if: github.event.inputs.force_destroy_rds == 'true' && github.event.inputs.environment == 'prod'
+        run: |
+          echo "::error::force_destroy_rds is not allowed in production environment"
+          exit 1
+
       - name: Print Configuration
         run: |
           echo "## Workflow Configuration" >> $GITHUB_STEP_SUMMARY
@@ -77,17 +83,6 @@ jobs:
           echo "| Force Rebuild | ${{ github.event.inputs.force_rebuild || 'false' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Force Destroy RDS | ${{ github.event.inputs.force_destroy_rds || 'false' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
-
-  approval-gate:
-    name: Manual Approval (Production Only)
-    if: github.event.inputs.environment == 'prod'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Await Manual Approval
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          event-type: manual-approval-required
-          client-payload: '{"message": "Production deployment: Please review and approve this run before proceeding with apply/destroy."}'
 
   test-and-build:
     name: Test and Build
@@ -103,10 +98,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 18
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: 'npm'
           cache-dependency-path: |
             backend/package-lock.json
@@ -161,7 +156,7 @@ jobs:
 
   deploy:
     name: Deploy Infrastructure
-    needs: [config-summary, test-and-build, terraform-check, approval-gate]
+    needs: [config-summary, test-and-build, terraform-check]
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.event.inputs.environment }}
@@ -191,7 +186,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: 3tier-app-deploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
@@ -443,7 +438,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: 3tier-app-test-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
@@ -596,7 +591,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: 3tier-app-keepalive-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
@@ -644,7 +639,7 @@ jobs:
 
   destroy:
     name: Destroy Infrastructure
-    needs: [deploy, test-deployment, keep-alive, approval-gate]
+    needs: [deploy, test-deployment, keep-alive]
     runs-on: ubuntu-latest
     if: |
       always() &&
@@ -659,7 +654,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: 3tier-app-destroy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
@@ -865,7 +860,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: 3tier-app-orphan-cleanup-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Cleanup Orphaned Resources
@@ -885,7 +880,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::125156866057:role/github-OICD
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: 3tier-app-destroy-only-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 

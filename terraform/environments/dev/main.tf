@@ -1,4 +1,6 @@
 terraform {
+  required_version = ">= 1.5.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -39,6 +41,7 @@ module "secrets" {
   name_prefix            = var.name_prefix
   db_username            = var.db_username
   db_password            = var.db_password
+  db_name                = var.db_name
   grafana_admin_password = var.grafana_admin_password
   rotation_lambda_arn    = var.rotation_lambda_arn
   rotation_days          = var.rotation_days
