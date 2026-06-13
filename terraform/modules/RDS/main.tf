@@ -11,12 +11,12 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "main" {
   identifier              = "${var.name_prefix}-db"
   engine                  = "postgres"
-  engine_version          = "15.4"
+  engine_version          = "15.18"
   instance_class          = "db.t3.micro"
   db_name                 = var.db_name
   allocated_storage       = 20
   username                = var.db_username
-  password                = data.aws_secretsmanager_secret_version.db_password.secret_string
+  password                = var.db_password
   db_subnet_group_name    = aws_db_subnet_group.main.name
   vpc_security_group_ids  = [var.rds_sg_id]
   storage_encrypted       = true
@@ -34,8 +34,4 @@ resource "aws_db_instance" "main" {
   }
 
   depends_on = [aws_db_subnet_group.main]
-}
-
-data "aws_secretsmanager_secret_version" "db_password" {
-  secret_id = var.db_password_secret_arn
 }

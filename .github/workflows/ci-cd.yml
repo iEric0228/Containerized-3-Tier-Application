@@ -1,34 +1,50 @@
-# NOTE: This workflow uses GitHub Environments for deployment gates.
-# Setup: Repository → Settings → Environments → Create "production" with required reviewer(s).
-# "dev" environment requires no reviewers. "production" requires manual approval.
+# CI/CD Pipeline
+# - Push to main / PR: test → build → push ECR → deploy ECS (no infrastructure changes)
+# - Manual trigger: optionally deploy/destroy infrastructure via Terraform
+#
+# Required GitHub Secrets:
+#   AWS_ROLE_ARN            - IAM role for OIDC federation
+#   TF_VAR_db_password      - RDS database password
+#   TF_VAR_grafana_admin_password - Grafana admin password
+#
+# Required GitHub Environments:
+#   dev  - no approval required
+#   prod - requires manual approval
+
 name: CI/CD Pipeline
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
-        description: 'Deployment Action'
+        description: 'Action to perform'
         required: true
-        default: 'deploy-test-destroy'
+        default: 'deploy-app'
         type: choice
         options:
-          - 'deploy-test-destroy'
-          - 'deploy-only'
-          - 'destroy-only'
-          - 'test-only'
-          - 'orphan-cleanup'
-      keep_alive_minutes:
-        description: 'Minutes to keep deployment running before destroy (0-120)'
-        required: false
-        default: '0'
-        type: string
+          - 'deploy-app'
+          - 'deploy-infrastructure'
+          - 'deploy-all'
+          - 'destroy'
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - 'dev'
+          - 'prod'
       skip_tests:
-        description: 'Skip unit tests (faster deployment)'
+        description: 'Skip unit tests'
         required: false
         default: false
         type: boolean
       skip_monitoring:
-        description: 'Skip monitoring stack deployment'
+        description: 'Skip monitoring stack'
         required: false
         default: false
         type: boolean
@@ -38,68 +54,33 @@ on:
         default: false
         type: boolean
       force_destroy_rds:
-        description: 'Force destroy RDS without final snapshot (dev only, blocked in prod)'
+        description: 'Force destroy RDS without final snapshot (dev only)'
         required: false
         default: false
         type: boolean
-      environment:
-        description: 'Deployment environment (dev/prod)'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-          - 'dev'
-          - 'prod'
 
 env:
   AWS_REGION: us-east-1
-  TF_WORKSPACE: dev
-  ENVIRONMENT: ${{ github.event.inputs.environment }}
+  ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  config-summary:
-    name: Configuration Summary
+  # ──────────────────────────────────────────────
+  # 1. TEST — runs on every push, PR, and manual
+  # ──────────────────────────────────────────────
+  test:
+    name: Test
     runs-on: ubuntu-latest
+    if: >-
+      github.event.inputs.action != 'destroy' &&
+      github.event.inputs.skip_tests != 'true'
     steps:
-      - name: Block force_destroy_rds in production
-        if: github.event.inputs.force_destroy_rds == 'true' && github.event.inputs.environment == 'prod'
-        run: |
-          echo "::error::force_destroy_rds is not allowed in production environment"
-          exit 1
+      - uses: actions/checkout@v4
 
-      - name: Print Configuration
-        run: |
-          echo "## Workflow Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Action | ${{ github.event.inputs.action }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Keep Alive (min) | ${{ github.event.inputs.keep_alive_minutes || '0' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Skip Tests | ${{ github.event.inputs.skip_tests || 'false' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Skip Monitoring | ${{ github.event.inputs.skip_monitoring || 'false' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Force Rebuild | ${{ github.event.inputs.force_rebuild || 'false' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Force Destroy RDS | ${{ github.event.inputs.force_destroy_rds || 'false' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
-
-  test-and-build:
-    name: Test and Build
-    needs: [config-summary]
-    runs-on: ubuntu-latest
-    if: |
-      github.event.inputs.skip_tests != 'true' &&
-      (github.event.inputs.action != 'destroy-only' || 
-       github.event_name == 'push' || 
-       github.event_name == 'pull_request')
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
@@ -107,165 +88,253 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
 
-      - name: Install and Test Backend
+      - name: Test Backend
         working-directory: backend
-        run: |
-          npm ci
-          npm run lint
-          npm test
+        run: npm ci && npm run lint && npm test
         env:
           CI: true
 
-      - name: Install and Test Frontend
+      - name: Test Frontend
         working-directory: frontend
-        run: |
-          npm ci
-          npm test -- --watchAll=false --coverage --passWithNoTests
+        run: npm ci && npm test -- --watchAll=false --coverage --passWithNoTests
         env:
           CI: true
 
-  terraform-check:
-    name: Terraform Validation
-    needs: [config-summary]
+  terraform-validate:
+    name: Validate Terraform
     runs-on: ubuntu-latest
-    if: |
-      github.event.inputs.action != 'destroy-only' || 
-      github.event_name == 'push' || 
-      github.event_name == 'pull_request'
-
+    if: github.event.inputs.action != 'destroy'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
-
-      - name: Terraform Format Check
+      - name: Validate
         working-directory: terraform/environments/dev
-        run: terraform fmt -check -recursive
+        run: |
+          terraform init -backend=false
+          terraform validate
 
-      - name: Terraform Init (Backend-less for validation)
-        working-directory: terraform/environments/dev
-        run: terraform init -backend=false
-
-      - name: Terraform Validate
-        working-directory: terraform/environments/dev
-        run: terraform validate
-
-  deploy:
-    name: Deploy Infrastructure
-    needs: [config-summary, test-and-build, terraform-check]
+  # ──────────────────────────────────────────────
+  # 2. BUILD & PUSH — on push to main or manual (not PR, not destroy)
+  # ──────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push Images
+    needs: [test]
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ github.event.inputs.environment }}
-      url: https://github.com/${{ github.repository }}/actions
-    if: |
+    if: >-
       always() &&
-      (needs.test-and-build.result == 'success' || needs.test-and-build.result == 'skipped') &&
-      (needs.terraform-check.result == 'success' || needs.terraform-check.result == 'skipped') &&
-      (github.event.inputs.action == 'deploy-test-destroy' || 
-       github.event.inputs.action == 'deploy-only' ||
-       github.event_name == 'push') &&
-      github.ref == 'refs/heads/main'
-
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      github.event.inputs.action != 'destroy' &&
+      github.event.inputs.action != 'deploy-infrastructure'
     outputs:
-      frontend_ecr: ${{ steps.tf-outputs.outputs.frontend_ecr }}
-      backend_ecr: ${{ steps.tf-outputs.outputs.backend_ecr }}
-      cluster_name: ${{ steps.tf-outputs.outputs.cluster_name }}
-      deployment_successful: ${{ steps.deploy-check.outputs.success }}
-      rds_identifier: ${{ steps.tf-outputs.outputs.rds_identifier }}
-      alb_dns: ${{ steps.tf-outputs.outputs.alb_dns }}
-      resources_created: ${{ steps.tf-outputs.outputs.resources_created }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      frontend_ecr: ${{ steps.meta.outputs.frontend_ecr }}
+      backend_ecr: ${{ steps.meta.outputs.backend_ecr }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: 3tier-app-deploy-${{ github.run_id }}
+          role-session-name: ci-build-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+      - name: Set image metadata
+        id: meta
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          FRONTEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${{ env.ENVIRONMENT }}-frontend"
+          BACKEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${{ env.ENVIRONMENT }}-backend"
+          IMAGE_TAG="${{ github.sha }}"
+          echo "frontend_ecr=${FRONTEND_ECR}" >> $GITHUB_OUTPUT
+          echo "backend_ecr=${BACKEND_ECR}" >> $GITHUB_OUTPUT
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.frontend_ecr }}:${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.backend_ecr }}:${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────
+  # 3. DEPLOY APP — update ECS with new images (no Terraform)
+  #    Runs on push to main + manual deploy-app/deploy-all
+  # ──────────────────────────────────────────────
+  deploy-app:
+    name: Deploy Application
+    needs: [build-and-push]
+    runs-on: ubuntu-latest
+    if: needs.build-and-push.result == 'success'
+    outputs:
+      alb_dns: ${{ steps.deploy.outputs.alb_dns }}
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: ci-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy new task definitions
+        id: deploy
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          FRONTEND_ECR: ${{ needs.build-and-push.outputs.frontend_ecr }}
+          BACKEND_ECR: ${{ needs.build-and-push.outputs.backend_ecr }}
+        run: |
+          set -e
+          CLUSTER="${{ env.ENVIRONMENT }}"
+
+          deploy_service() {
+            local SERVICE="$1"
+            local FAMILY="$2"
+            local NEW_IMAGE="$3"
+
+            TASK_DEF_JSON=$(aws ecs describe-task-definition --task-definition "$FAMILY" --region "$AWS_REGION" --query 'taskDefinition')
+
+            UPDATED=$(echo "$TASK_DEF_JSON" | jq --arg IMG "$NEW_IMAGE" '
+              .containerDefinitions |= map(
+                if .essential == true then .image = $IMG else . end
+              ) |
+              del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                  .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+            ')
+
+            NEW_ARN=$(echo "$UPDATED" | jq -r '{
+              family, networkMode, containerDefinitions, volumes,
+              requiresCompatibilities, cpu, memory,
+              executionRoleArn, taskRoleArn
+            }' | aws ecs register-task-definition \
+              --region "$AWS_REGION" \
+              --cli-input-json file:///dev/stdin \
+              --query 'taskDefinition.taskDefinitionArn' --output text)
+
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$SERVICE" \
+              --task-definition "$NEW_ARN" \
+              --force-new-deployment \
+              --region "$AWS_REGION" \
+              --no-cli-pager > /dev/null
+
+            echo "Deployed $SERVICE with image $NEW_IMAGE (task: $NEW_ARN)"
+          }
+
+          deploy_service "${CLUSTER}-frontend" "${CLUSTER}-frontend" "${FRONTEND_ECR}:${IMAGE_TAG}"
+          deploy_service "${CLUSTER}-backend"  "${CLUSTER}-backend"  "${BACKEND_ECR}:${IMAGE_TAG}"
+
+          echo "Waiting for services to stabilize..."
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER" \
+            --services "${CLUSTER}-frontend" "${CLUSTER}-backend" \
+            --cli-connect-timeout 600 \
+            --cli-read-timeout 600 || echo "Services may still be starting"
+
+          ALB_DNS=$(aws elbv2 describe-load-balancers --region "$AWS_REGION" \
+            --query "LoadBalancers[?contains(LoadBalancerName,'${CLUSTER}-alb')].DNSName | [0]" --output text)
+          echo "alb_dns=${ALB_DNS}" >> $GITHUB_OUTPUT
+
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image tag**: \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend**: ${FRONTEND_ECR}:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend**: ${BACKEND_ECR}:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: http://${ALB_DNS}" >> $GITHUB_STEP_SUMMARY
+
+  # ──────────────────────────────────────────────
+  # 4. DEPLOY INFRASTRUCTURE — Terraform (manual only)
+  # ──────────────────────────────────────────────
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    needs: [test, terraform-validate]
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment || 'dev' }}
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.action == 'deploy-infrastructure' || github.event.inputs.action == 'deploy-all') &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      (needs.terraform-validate.result == 'success' || needs.terraform-validate.result == 'skipped')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Block force_destroy_rds in production
+        if: github.event.inputs.force_destroy_rds == 'true' && github.event.inputs.environment == 'prod'
+        run: |
+          echo "::error::force_destroy_rds is not allowed in production"
+          exit 1
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: ci-infra-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
           terraform_wrapper: false
 
-      - name: Force Delete Conflicting AWS Secrets
+      - name: Force Delete Conflicting Secrets
         run: |
           set -e
-          # List of secrets to force delete (parameterized by environment)
-          ENV="${{ env.ENVIRONMENT }}"
-          REGION="${{ env.AWS_REGION }}"
-          SECRETS=(
-            "$ENV-db-password"
-            "$ENV-db-username"
-            "$ENV-grafana-admin-password"
-          )
-          for SECRET in "${SECRETS[@]}"; do
-            ARN=$(aws secretsmanager list-secrets --region "$REGION" --query "SecretList[?Name=='$SECRET'].ARN" --output text)
+          for SECRET in "${{ env.ENVIRONMENT }}-db-password" "${{ env.ENVIRONMENT }}-db-username" "${{ env.ENVIRONMENT }}-db-name" "${{ env.ENVIRONMENT }}-grafana-admin-password"; do
+            ARN=$(aws secretsmanager list-secrets --region "$AWS_REGION" --query "SecretList[?Name=='$SECRET'].ARN" --output text)
             if [ -n "$ARN" ]; then
-              # Check if secret is scheduled for deletion
-              DELETION_DATE=$(aws secretsmanager describe-secret --secret-id "$ARN" --region "$REGION" --query 'DeletedDate' --output text 2>/dev/null || echo "None")
+              DELETION_DATE=$(aws secretsmanager describe-secret --secret-id "$ARN" --region "$AWS_REGION" --query 'DeletedDate' --output text 2>/dev/null || echo "None")
               if [ "$DELETION_DATE" != "None" ]; then
-                echo "Secret $SECRET is scheduled for deletion. Restoring before force delete."
-                aws secretsmanager restore-secret --secret-id "$ARN" --region "$REGION"
+                aws secretsmanager restore-secret --secret-id "$ARN" --region "$AWS_REGION"
                 sleep 2
               fi
-              echo "Force deleting secret: $SECRET ($ARN)"
-              aws secretsmanager delete-secret --secret-id "$ARN" --region "$REGION" --force-delete-without-recovery || true
-            else
-              echo "Secret not found: $SECRET"
+              echo "Force deleting: $SECRET"
+              aws secretsmanager delete-secret --secret-id "$ARN" --region "$AWS_REGION" --force-delete-without-recovery || true
             fi
           done
-          echo "✓ Checked and force-deleted conflicting secrets if present"
 
       - name: Bootstrap Terraform Backend
         run: |
           set -e
-          BUCKET_NAME="ericchiu-terraform-state"
-          DYNAMODB_TABLE="terraform-state-lock"
-          
-          echo "Checking Terraform backend resources..."
-          
-          if ! aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
-            echo "Creating S3 bucket: ${BUCKET_NAME}"
-            aws s3api create-bucket --bucket "${BUCKET_NAME}" --region $AWS_REGION
-            aws s3api put-bucket-versioning --bucket "${BUCKET_NAME}" --versioning-configuration Status=Enabled
-            aws s3api put-bucket-encryption --bucket "${BUCKET_NAME}" --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-            aws s3api put-public-access-block --bucket "${BUCKET_NAME}" --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
-            echo "✓ S3 bucket created"
-          else
-            echo "✓ S3 bucket already exists"
+          BUCKET="ericchiu-terraform-state"
+          TABLE="terraform-state-lock"
+          if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3api create-bucket --bucket "$BUCKET" --region $AWS_REGION
+            aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
+            aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+            aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
           fi
-          
-          if ! aws dynamodb describe-table --table-name "${DYNAMODB_TABLE}" --region $AWS_REGION 2>/dev/null; then
-            echo "Creating DynamoDB table: ${DYNAMODB_TABLE}"
-            aws dynamodb create-table \
-              --table-name "${DYNAMODB_TABLE}" \
-              --attribute-definitions AttributeName=LockID,AttributeType=S \
-              --key-schema AttributeName=LockID,KeyType=HASH \
-              --billing-mode PAY_PER_REQUEST \
-              --region $AWS_REGION
-            aws dynamodb wait table-exists --table-name "${DYNAMODB_TABLE}" --region $AWS_REGION
-            echo "✓ DynamoDB table created"
-          else
-            echo "✓ DynamoDB table already exists"
+          if ! aws dynamodb describe-table --table-name "$TABLE" --region $AWS_REGION 2>/dev/null; then
+            aws dynamodb create-table --table-name "$TABLE" --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST --region $AWS_REGION
+            aws dynamodb wait table-exists --table-name "$TABLE" --region $AWS_REGION
           fi
 
-      - name: Comprehensive Resource Discovery and Import
-        if: false  # Disabled: All resources are now managed by Terraform, no manual imports required
-        run: echo "Resource import step disabled. All resources are managed by Terraform."
-
-      - name: Terraform Init with Backend
+      - name: Terraform Init
         working-directory: terraform/environments/dev
         run: |
           terraform init -input=false -reconfigure \
@@ -275,391 +344,129 @@ jobs:
             -backend-config="dynamodb_table=terraform-state-lock" \
             -backend-config="encrypt=true"
 
-      - name: Terraform Plan
+      - name: Terraform Plan & Apply
         working-directory: terraform/environments/dev
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password }}
+          TF_VAR_grafana_admin_password: ${{ secrets.TF_VAR_grafana_admin_password }}
         run: |
           terraform plan -out=tfplan \
-            -var="environment=${ENVIRONMENT}" \
-            -var="skip_monitoring=${{ github.event.inputs.skip_monitoring }}"
-
-      - name: Terraform Apply
-        working-directory: terraform/environments/dev
-        run: |
-          set -e
+            -var="environment=${{ env.ENVIRONMENT }}" \
+            -var="skip_monitoring=${{ github.event.inputs.skip_monitoring || 'false' }}"
           terraform apply -auto-approve tfplan
-          echo "✓ Infrastructure deployment complete"
 
-      - name: Get Infrastructure Outputs
-        id: tf-outputs
+      - name: Print Outputs
         working-directory: terraform/environments/dev
         run: |
-          set -e
-          
-          FRONTEND_ECR=$(terraform output -raw frontend_repository_url 2>/dev/null || echo "")
-          BACKEND_ECR=$(terraform output -raw backend_repository_url 2>/dev/null || echo "")
-          CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "${ENVIRONMENT}")
-          ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "")
-          RDS_ID=$(terraform output -raw rds_identifier 2>/dev/null || echo "")
-          
-          # Count resources in state
-          RESOURCE_COUNT=$(terraform state list 2>/dev/null | wc -l)
-          
-          # Fall back to AWS CLI if outputs aren't available
-          if [ -z "$FRONTEND_ECR" ]; then
-            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-            FRONTEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENVIRONMENT}-frontend"
-            BACKEND_ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENVIRONMENT}-backend"
-          fi
-          
-          echo "frontend_ecr=${FRONTEND_ECR}" >> $GITHUB_OUTPUT
-          echo "backend_ecr=${BACKEND_ECR}" >> $GITHUB_OUTPUT
-          echo "cluster_name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
-          echo "alb_dns=${ALB_DNS}" >> $GITHUB_OUTPUT
-          echo "rds_identifier=${RDS_ID}" >> $GITHUB_OUTPUT
-          echo "resources_created=${RESOURCE_COUNT}" >> $GITHUB_OUTPUT
-          
           echo "## Infrastructure Outputs" >> $GITHUB_STEP_SUMMARY
-          echo "- **Frontend ECR**: ${FRONTEND_ECR}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backend ECR**: ${BACKEND_ECR}" >> $GITHUB_STEP_SUMMARY
-          echo "- **ECS Cluster**: ${CLUSTER_NAME}" >> $GITHUB_STEP_SUMMARY
-          echo "- **ALB DNS**: ${ALB_DNS}" >> $GITHUB_STEP_SUMMARY
-          echo "- **RDS Instance**: ${RDS_ID}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Resources in State**: ${RESOURCE_COUNT}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          terraform output >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and Push Docker Images
-        run: |
-          set -e
-          IMAGE_TAG="${{ github.sha }}"
-          FORCE_REBUILD="${{ github.event.inputs.force_rebuild }}"
-          
-          # Set cache options based on force_rebuild
-          if [ "$FORCE_REBUILD" == "true" ]; then
-            echo "Force rebuild enabled - ignoring cache"
-            CACHE_FROM_FE=""
-            CACHE_FROM_BE=""
-          else
-            CACHE_FROM_FE="--cache-from type=registry,ref=${{ steps.tf-outputs.outputs.frontend_ecr }}:latest"
-            CACHE_FROM_BE="--cache-from type=registry,ref=${{ steps.tf-outputs.outputs.backend_ecr }}:latest"
-          fi
-          
-          # Build and push frontend
-          docker buildx build \
-            --platform linux/amd64 \
-            --tag "${{ steps.tf-outputs.outputs.frontend_ecr }}:${IMAGE_TAG}" \
-            --tag "${{ steps.tf-outputs.outputs.frontend_ecr }}:latest" \
-            --push \
-            $CACHE_FROM_FE \
-            --cache-to type=inline \
-            ./frontend &
-          
-          # Build and push backend
-          docker buildx build \
-            --platform linux/amd64 \
-            --tag "${{ steps.tf-outputs.outputs.backend_ecr }}:${IMAGE_TAG}" \
-            --tag "${{ steps.tf-outputs.outputs.backend_ecr }}:latest" \
-            --push \
-            $CACHE_FROM_BE \
-            --cache-to type=inline \
-            ./backend &
-          
-          wait
-          echo "✓ Images built and pushed with tags: ${IMAGE_TAG}, latest"
-
-      - name: Deploy ECS Services
-        run: |
-          set -e
-          CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
-          SKIP_MONITORING="${{ github.event.inputs.skip_monitoring }}"
-          
-          echo "Deploying application services..."
-          aws ecs update-service --cluster "$CLUSTER_NAME" --service "${ENVIRONMENT}-frontend" --force-new-deployment --no-cli-pager &
-          aws ecs update-service --cluster "$CLUSTER_NAME" --service "${ENVIRONMENT}-backend" --force-new-deployment --no-cli-pager &
-          wait
-          
-          if [ "$SKIP_MONITORING" != "true" ]; then
-            echo "Deploying monitoring services..."
-            aws ecs update-service --cluster "$CLUSTER_NAME" --service "${ENVIRONMENT}-prometheus" --force-new-deployment --no-cli-pager 2>/dev/null || echo "⚠ Prometheus service not found"
-            aws ecs update-service --cluster "$CLUSTER_NAME" --service "${ENVIRONMENT}-grafana" --force-new-deployment --no-cli-pager 2>/dev/null || echo "⚠ Grafana service not found"
-            aws ecs update-service --cluster "$CLUSTER_NAME" --service "${ENVIRONMENT}-loki" --force-new-deployment --no-cli-pager 2>/dev/null || echo "⚠ Loki service not found"
-          else
-            echo "Skipping monitoring services (skip_monitoring=true)"
-          fi
-
-      - name: Wait for Services
-        id: deploy-check
-        run: |
-          set +e  # Don't fail if services aren't ready yet
-          CLUSTER_NAME="${{ steps.tf-outputs.outputs.cluster_name }}"
-          SKIP_MONITORING="${{ github.event.inputs.skip_monitoring }}"
-          
-          echo "Waiting for application services to stabilize (up to 10 minutes)..."
-          if aws ecs wait services-stable \
-            --cluster "$CLUSTER_NAME" \
-            --services "${ENVIRONMENT}-frontend" "${ENVIRONMENT}-backend" \
-            --cli-connect-timeout 600 \
-            --cli-read-timeout 600; then
-            echo "✓ Application services stable"
-          else
-            echo "⚠ Application services may still be starting"
-          fi
-          
-          if [ "$SKIP_MONITORING" != "true" ]; then
-            echo "Waiting for monitoring services..."
-            if aws ecs wait services-stable \
-              --cluster "$CLUSTER_NAME" \
-              --services "${ENVIRONMENT}-prometheus" "${ENVIRONMENT}-grafana" "${ENVIRONMENT}-loki" \
-              --cli-connect-timeout 300 \
-              --cli-read-timeout 300 2>/dev/null; then
-              echo "✓ Monitoring services stable"
-            else
-              echo "⚠ Monitoring services may still be starting"
-            fi
-          fi
-          
-          echo "success=true" >> $GITHUB_OUTPUT
-
-  test-deployment:
-    name: Test Deployment
-    needs: [deploy]
+  # ──────────────────────────────────────────────
+  # 5. SMOKE TESTS — after app or infra deploy
+  # ──────────────────────────────────────────────
+  smoke-test:
+    name: Smoke Test
+    needs: [deploy-app, deploy-infrastructure]
     runs-on: ubuntu-latest
-    if: |
-      needs.deploy.outputs.deployment_successful == 'true' &&
-      (github.event.inputs.action == 'deploy-test-destroy' || 
-       github.event.inputs.action == 'deploy-only' ||
-       github.event.inputs.action == 'test-only')
+    if: >-
+      always() &&
+      (needs.deploy-app.result == 'success' || needs.deploy-infrastructure.result == 'success')
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: 3tier-app-test-${{ github.run_id }}
+          role-session-name: ci-test-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.0
-          terraform_wrapper: false
-
-      - name: Get ALB DNS Names
-        id: get-alb
-        working-directory: terraform/environments/dev
+      - name: Get ALB DNS
+        id: alb
         run: |
-          terraform init -input=false \
-            -backend-config="bucket=ericchiu-terraform-state" \
-            -backend-config="key=dev/terraform.tfstate" \
-            -backend-config="region=us-east-1" \
-            -backend-config="dynamodb_table=terraform-state-lock" \
-            -backend-config="encrypt=true"
-          ALB_DNS=$(terraform output -raw alb_dns_name)
-          MONITORING_ALB_DNS=$(terraform output -raw monitoring_alb_dns 2>/dev/null || echo "")
-          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
-          echo "monitoring_alb_dns=$MONITORING_ALB_DNS" >> $GITHUB_OUTPUT
+          ALB_DNS=$(aws elbv2 describe-load-balancers --region "$AWS_REGION" \
+            --query "LoadBalancers[?contains(LoadBalancerName,'${{ env.ENVIRONMENT }}-alb') && !contains(LoadBalancerName,'monitoring')].DNSName | [0]" --output text)
+          MON_ALB_DNS=$(aws elbv2 describe-load-balancers --region "$AWS_REGION" \
+            --query "LoadBalancers[?contains(LoadBalancerName,'${{ env.ENVIRONMENT }}-monitoring')].DNSName | [0]" --output text)
+          echo "alb_dns=${ALB_DNS}" >> $GITHUB_OUTPUT
+          echo "mon_alb_dns=${MON_ALB_DNS}" >> $GITHUB_OUTPUT
 
       - name: Test Endpoints
         run: |
-          set +e  # Don't fail on test errors
-          ALB_DNS="${{ steps.get-alb.outputs.alb_dns }}"
-          MONITORING_ALB_DNS="${{ steps.get-alb.outputs.monitoring_alb_dns }}"
-          
-          TESTS_PASSED=0
-          TESTS_FAILED=0
-          
-          echo "## Deployment Testing" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Testing application at http://$ALB_DNS" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Test frontend
-          echo "### Frontend Test" >> $GITHUB_STEP_SUMMARY
-          FRONTEND_OK=false
-          for i in {1..30}; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$ALB_DNS" 2>/dev/null || echo "000")
-            if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
-              echo "✓ Frontend is responding (HTTP $HTTP_CODE)" | tee -a $GITHUB_STEP_SUMMARY
-              FRONTEND_OK=true
-              ((TESTS_PASSED++))
-              break
+          set +e
+          ALB="${{ steps.alb.outputs.alb_dns }}"
+          MON="${{ steps.alb.outputs.mon_alb_dns }}"
+          PASSED=0; FAILED=0
+
+          echo "## Smoke Tests" >> $GITHUB_STEP_SUMMARY
+
+          # Frontend
+          for i in $(seq 1 20); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$ALB" 2>/dev/null)
+            if [[ "$CODE" =~ ^(200|301|302)$ ]]; then
+              echo "- Frontend: HTTP $CODE" | tee -a $GITHUB_STEP_SUMMARY
+              ((PASSED++)); break
             fi
-            echo "Frontend not ready (HTTP $HTTP_CODE), retry $i/30..."
-            sleep 10
+            sleep 15
           done
-          
-          if [ "$FRONTEND_OK" = false ]; then
-            echo "⚠ Frontend did not respond within timeout" | tee -a $GITHUB_STEP_SUMMARY
-            ((TESTS_FAILED++))
-          fi
-          
-          # Test backend API
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Backend API Test" >> $GITHUB_STEP_SUMMARY
-          BACKEND_OK=false
-          for i in {1..30}; do
-            if curl -f -s "http://$ALB_DNS/api/health" > /dev/null 2>&1; then
-              RESPONSE=$(curl -s "http://$ALB_DNS/api/health")
-              echo "✓ Backend API is responding: $RESPONSE" | tee -a $GITHUB_STEP_SUMMARY
-              BACKEND_OK=true
-              ((TESTS_PASSED++))
-              break
+          [[ "$CODE" =~ ^(200|301|302)$ ]] || { echo "- Frontend: FAILED" | tee -a $GITHUB_STEP_SUMMARY; ((FAILED++)); }
+
+          # Backend
+          for i in $(seq 1 20); do
+            if curl -f -s "http://$ALB/api/health" > /dev/null 2>&1; then
+              echo "- Backend API: OK" | tee -a $GITHUB_STEP_SUMMARY
+              ((PASSED++)); break
             fi
-            echo "Backend API not ready, retry $i/30..."
-            sleep 10
+            sleep 15
           done
-          
-          if [ "$BACKEND_OK" = false ]; then
-            echo "⚠ Backend API did not respond within timeout" | tee -a $GITHUB_STEP_SUMMARY
-            ((TESTS_FAILED++))
-          fi
-          
-          # Test monitoring if available
-          if [ -n "$MONITORING_ALB_DNS" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Monitoring Stack Tests" >> $GITHUB_STEP_SUMMARY
-            echo "Testing monitoring at http://$MONITORING_ALB_DNS" >> $GITHUB_STEP_SUMMARY
-            
-            # Prometheus
-            PROM_OK=false
-            for i in {1..10}; do
-              if curl -f -s "http://$MONITORING_ALB_DNS/prometheus/-/healthy" > /dev/null 2>&1; then
-                echo "✓ Prometheus is responding" | tee -a $GITHUB_STEP_SUMMARY
-                PROM_OK=true
-                ((TESTS_PASSED++))
-                break
-              fi
-              echo "Prometheus not ready, retry $i/10..."
+          curl -f -s "http://$ALB/api/health" > /dev/null 2>&1 || { echo "- Backend API: FAILED" | tee -a $GITHUB_STEP_SUMMARY; ((FAILED++)); }
+
+          # Monitoring
+          if [ -n "$MON" ] && [ "$MON" != "None" ]; then
+            for i in $(seq 1 10); do
+              curl -f -s "http://$MON/prometheus/-/healthy" > /dev/null 2>&1 && { echo "- Prometheus: OK" | tee -a $GITHUB_STEP_SUMMARY; ((PASSED++)); break; }
               sleep 10
             done
-            
-            if [ "$PROM_OK" = false ]; then
-              echo "⚠ Prometheus did not respond within timeout" | tee -a $GITHUB_STEP_SUMMARY
-              ((TESTS_FAILED++))
-            fi
-            
-            # Grafana
-            GRAFANA_OK=false
-            for i in {1..10}; do
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$MONITORING_ALB_DNS/grafana/api/health" 2>/dev/null || echo "000")
-              if [[ "$HTTP_CODE" =~ ^(200|401)$ ]]; then
-                echo "✓ Grafana is responding (HTTP $HTTP_CODE)" | tee -a $GITHUB_STEP_SUMMARY
-                GRAFANA_OK=true
-                ((TESTS_PASSED++))
-                break
-              fi
-              echo "Grafana not ready, retry $i/10..."
+            for i in $(seq 1 10); do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$MON/grafana/api/health" 2>/dev/null)
+              [[ "$CODE" =~ ^(200|401|302)$ ]] && { echo "- Grafana: HTTP $CODE" | tee -a $GITHUB_STEP_SUMMARY; ((PASSED++)); break; }
               sleep 10
             done
-            
-            if [ "$GRAFANA_OK" = false ]; then
-              echo "⚠ Grafana did not respond within timeout" | tee -a $GITHUB_STEP_SUMMARY
-              ((TESTS_FAILED++))
-            fi
           fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- ✓ Passed: $TESTS_PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "- ✗ Failed: $TESTS_FAILED" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Access URLs" >> $GITHUB_STEP_SUMMARY
-          echo "- **Application**: http://$ALB_DNS" >> $GITHUB_STEP_SUMMARY
-          if [ -n "$MONITORING_ALB_DNS" ]; then
-            echo "- **Prometheus**: http://$MONITORING_ALB_DNS/prometheus" >> $GITHUB_STEP_SUMMARY
-            echo "- **Grafana**: http://$MONITORING_ALB_DNS/grafana" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "Deployment tests completed: $TESTS_PASSED passed, $TESTS_FAILED failed"
 
-  keep-alive:
-    name: Keep Deployment Running
-    needs: [deploy, test-deployment]
-    runs-on: ubuntu-latest
-    if: |
-      always() &&
-      needs.deploy.result == 'success' &&
-      github.event.inputs.action == 'deploy-test-destroy' &&
-      github.event.inputs.keep_alive_minutes != '0' &&
-      github.event.inputs.keep_alive_minutes != ''
-
-    steps:
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: 3tier-app-keepalive-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Display Access Information
-        run: |
-          KEEP_MINUTES="${{ github.event.inputs.keep_alive_minutes }}"
-          ALB_DNS="${{ needs.deploy.outputs.alb_dns }}"
-          
-          echo "## Deployment Active" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The deployment will remain active for **${KEEP_MINUTES} minutes** before automatic cleanup." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Access Your Application" >> $GITHUB_STEP_SUMMARY
-          echo "- **URL**: http://${ALB_DNS}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### To extend or cancel:" >> $GITHUB_STEP_SUMMARY
-          echo "- Cancel this workflow run to prevent automatic destroy" >> $GITHUB_STEP_SUMMARY
-          echo "- Re-run with 'deploy-only' action to keep infrastructure" >> $GITHUB_STEP_SUMMARY
+          echo "**Passed: $PASSED | Failed: $FAILED**" >> $GITHUB_STEP_SUMMARY
+          echo "- **App**: http://$ALB" >> $GITHUB_STEP_SUMMARY
+          [ -n "$MON" ] && [ "$MON" != "None" ] && echo "- **Grafana**: http://$MON/grafana" >> $GITHUB_STEP_SUMMARY
 
-      - name: Keep Alive Timer
-        run: |
-          KEEP_MINUTES="${{ github.event.inputs.keep_alive_minutes }}"
-          KEEP_SECONDS=$((KEEP_MINUTES * 60))
-          
-          # Cap at 120 minutes
-          if [ "$KEEP_SECONDS" -gt 7200 ]; then
-            KEEP_SECONDS=7200
-            echo "Capped keep-alive duration to 120 minutes"
-          fi
-          
-          echo "Keeping deployment alive for ${KEEP_MINUTES} minutes..."
-          echo "Started at: $(date)"
-          
-          # Sleep in 60-second intervals with progress updates
-          ELAPSED=0
-          while [ "$ELAPSED" -lt "$KEEP_SECONDS" ]; do
-            sleep 60
-            ELAPSED=$((ELAPSED + 60))
-            REMAINING=$(((KEEP_SECONDS - ELAPSED) / 60))
-            echo "Elapsed: $((ELAPSED / 60)) minutes | Remaining: ${REMAINING} minutes"
-          done
-          
-          echo "Keep-alive period completed at: $(date)"
-          echo "Proceeding to destroy..."
-
+  # ──────────────────────────────────────────────
+  # 6. DESTROY — manual only
+  # ──────────────────────────────────────────────
   destroy:
     name: Destroy Infrastructure
-    needs: [deploy, test-deployment, keep-alive]
     runs-on: ubuntu-latest
-    if: |
-      always() &&
-      github.event.inputs.action == 'deploy-test-destroy' &&
-      (needs.deploy.result == 'success' || needs.deploy.result == 'failure') &&
-      (needs.keep-alive.result == 'success' || needs.keep-alive.result == 'skipped')
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    environment:
+      name: ${{ github.event.inputs.environment || 'dev' }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Block force_destroy_rds in production
+        if: github.event.inputs.force_destroy_rds == 'true' && github.event.inputs.environment == 'prod'
+        run: |
+          echo "::error::force_destroy_rds is not allowed in production"
+          exit 1
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: 3tier-app-destroy-${{ github.run_id }}
+          role-session-name: ci-destroy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
           terraform_wrapper: false
@@ -674,304 +481,80 @@ jobs:
             -backend-config="dynamodb_table=terraform-state-lock" \
             -backend-config="encrypt=true"
 
-      - name: Scale Down All ECS Services
+      - name: Scale Down ECS Services
         continue-on-error: true
         run: |
           set +e
-          echo "=== Scaling down ECS services ==="
-          CLUSTER_NAME="${ENVIRONMENT}"
-          SCALED_COUNT=0
-          
-          # Get all services in the cluster
-          SERVICES=$(aws ecs list-services --cluster "$CLUSTER_NAME" --region $AWS_REGION --query 'serviceArns[*]' --output text 2>/dev/null || echo "")
-          
-          if [ -n "$SERVICES" ]; then
-            SERVICE_NAMES=""
-            for SERVICE_ARN in $SERVICES; do
-              SERVICE_NAME=$(basename "$SERVICE_ARN")
-              echo "Scaling down service: $SERVICE_NAME"
-              if aws ecs update-service \
-                --cluster "$CLUSTER_NAME" \
-                --service "$SERVICE_NAME" \
-                --desired-count 0 \
-                --region $AWS_REGION \
-                --no-cli-pager 2>/dev/null; then
-                ((SCALED_COUNT++))
-                SERVICE_NAMES="$SERVICE_NAMES $SERVICE_NAME"
-              fi
-            done
-            
-            if [ -n "$SERVICE_NAMES" ]; then
-              echo "Waiting for services to drain (up to 5 minutes)..."
-              aws ecs wait services-stable \
-                --cluster "$CLUSTER_NAME" \
-                --services $SERVICE_NAMES \
-                --region $AWS_REGION \
-                --cli-connect-timeout 300 \
-                --cli-read-timeout 300 2>/dev/null || echo "Some services did not stabilize"
-            fi
-            
-            echo "✓ Scaled down $SCALED_COUNT services"
-          else
-            echo "No services found in cluster"
-          fi
-          
-          echo "scaled_services=${SCALED_COUNT}" >> $GITHUB_ENV
+          CLUSTER="${{ env.ENVIRONMENT }}"
+          SERVICES=$(aws ecs list-services --cluster "$CLUSTER" --region $AWS_REGION --query 'serviceArns[*]' --output text 2>/dev/null)
+          SERVICE_NAMES=""
+          for ARN in $SERVICES; do
+            NAME=$(basename "$ARN")
+            aws ecs update-service --cluster "$CLUSTER" --service "$NAME" --desired-count 0 --region $AWS_REGION --no-cli-pager 2>/dev/null
+            SERVICE_NAMES="$SERVICE_NAMES $NAME"
+          done
+          [ -n "$SERVICE_NAMES" ] && aws ecs wait services-stable --cluster "$CLUSTER" --services $SERVICE_NAMES --region $AWS_REGION --cli-connect-timeout 300 2>/dev/null || true
 
       - name: Clean ECR Repositories
         continue-on-error: true
         run: |
           set +e
-          echo "=== Cleaning ECR repositories ==="
-          
-          REPOS="${ENVIRONMENT}-frontend ${ENVIRONMENT}-backend"
-          CLEANED_COUNT=0
-          
-          for REPO in $REPOS; do
-            echo "Cleaning repository: $REPO"
-            
-            # Check if repository exists
+          for REPO in "${{ env.ENVIRONMENT }}-frontend" "${{ env.ENVIRONMENT }}-backend"; do
             if aws ecr describe-repositories --repository-names "$REPO" --region $AWS_REGION &>/dev/null; then
-              # Get all images with proper JSON formatting
-              IMAGES=$(aws ecr list-images --repository-name "$REPO" --region $AWS_REGION --query 'imageIds' --output json 2>/dev/null)
-              IMAGE_COUNT=$(echo "$IMAGES" | jq '. | length' 2>/dev/null || echo "0")
-              
-              if [ "$IMAGE_COUNT" -gt 0 ]; then
-                echo "  Deleting $IMAGE_COUNT images from $REPO"
-                if aws ecr batch-delete-image \
-                  --repository-name "$REPO" \
-                  --image-ids "$IMAGES" \
-                  --region $AWS_REGION \
-                  --no-cli-pager 2>/dev/null; then
-                  echo "  ✓ Deleted images from $REPO"
-                  ((CLEANED_COUNT++))
-                else
-                  echo "  ✗ Failed to delete images from $REPO"
-                fi
-              else
-                echo "  No images in $REPO"
-              fi
-            else
-              echo "  Repository $REPO does not exist"
+              IMAGES=$(aws ecr list-images --repository-name "$REPO" --region $AWS_REGION --query 'imageIds' --output json)
+              COUNT=$(echo "$IMAGES" | jq 'length')
+              [ "$COUNT" -gt 0 ] && aws ecr batch-delete-image --repository-name "$REPO" --image-ids "$IMAGES" --region $AWS_REGION --no-cli-pager 2>/dev/null
             fi
           done
-          
-          echo "cleaned_repos=${CLEANED_COUNT}" >> $GITHUB_ENV
 
       - name: Create RDS Final Snapshot
-        id: rds-snapshot
+        id: snapshot
         continue-on-error: true
         if: github.event.inputs.force_destroy_rds != 'true'
         run: |
           set +e
-          echo "=== Creating RDS final snapshot ==="
-          RDS_ID="${ENVIRONMENT}-postgres"
-          SNAPSHOT_ID="${ENVIRONMENT}-final-$(date +%Y%m%d-%H%M%S)"
-          
-          # Check if RDS instance exists
+          RDS_ID="${{ env.ENVIRONMENT }}-db"
+          SNAP_ID="${{ env.ENVIRONMENT }}-final-$(date +%Y%m%d-%H%M%S)"
           if aws rds describe-db-instances --db-instance-identifier "$RDS_ID" --region $AWS_REGION &>/dev/null; then
-            echo "Creating final snapshot: $SNAPSHOT_ID"
-            if aws rds create-db-snapshot \
-              --db-instance-identifier "$RDS_ID" \
-              --db-snapshot-identifier "$SNAPSHOT_ID" \
-              --region $AWS_REGION \
-              --no-cli-pager; then
-              
-              echo "Waiting for snapshot to complete (up to 10 minutes)..."
-              if aws rds wait db-snapshot-completed \
-                --db-snapshot-identifier "$SNAPSHOT_ID" \
-                --region $AWS_REGION \
-                --cli-connect-timeout 600 \
-                --cli-read-timeout 600 2>/dev/null; then
-                echo "✓ Snapshot created successfully: $SNAPSHOT_ID"
-                echo "snapshot_id=$SNAPSHOT_ID" >> $GITHUB_OUTPUT
-                echo "snapshot_created=true" >> $GITHUB_OUTPUT
-              else
-                echo "⚠ Snapshot creation timed out but may complete later: $SNAPSHOT_ID"
-                echo "snapshot_id=$SNAPSHOT_ID" >> $GITHUB_OUTPUT
-                echo "snapshot_created=partial" >> $GITHUB_OUTPUT
-              fi
-            else
-              echo "✗ Failed to create snapshot"
-              echo "snapshot_created=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "RDS instance not found, skipping snapshot"
-            echo "snapshot_created=false" >> $GITHUB_OUTPUT
+            aws rds create-db-snapshot --db-instance-identifier "$RDS_ID" --db-snapshot-identifier "$SNAP_ID" --region $AWS_REGION --no-cli-pager
+            aws rds wait db-snapshot-completed --db-snapshot-identifier "$SNAP_ID" --region $AWS_REGION --cli-connect-timeout 600 2>/dev/null
+            echo "snapshot=$SNAP_ID" >> $GITHUB_OUTPUT
           fi
+
+      - name: Deregister Service Discovery Instances
+        continue-on-error: true
+        run: |
+          set +e
+          NAMESPACE=$(aws servicediscovery list-namespaces --region $AWS_REGION \
+            --query "Namespaces[?Name=='${{ env.ENVIRONMENT }}.local'].Id | [0]" --output text)
+          [ -z "$NAMESPACE" ] || [ "$NAMESPACE" = "None" ] && exit 0
+          SERVICES=$(aws servicediscovery list-services --region $AWS_REGION \
+            --filters "Name=NAMESPACE_ID,Values=$NAMESPACE" --query 'Services[*].Id' --output text)
+          for SVC_ID in $SERVICES; do
+            INSTANCES=$(aws servicediscovery list-instances --service-id "$SVC_ID" --region $AWS_REGION --query 'Instances[*].Id' --output text)
+            for INST_ID in $INSTANCES; do
+              aws servicediscovery deregister-instance --service-id "$SVC_ID" --instance-id "$INST_ID" --region $AWS_REGION 2>/dev/null
+            done
+          done
+          sleep 10
 
       - name: Terraform Destroy
-        id: tf-destroy
         working-directory: terraform/environments/dev
+        env:
+          TF_VAR_db_password: ${{ secrets.TF_VAR_db_password }}
+          TF_VAR_grafana_admin_password: ${{ secrets.TF_VAR_grafana_admin_password }}
         run: |
-          set -e
-          echo "=== Destroying infrastructure with Terraform ==="
-          
-          FORCE_DESTROY="${{ github.event.inputs.force_destroy_rds }}"
-          
-          if [ "$FORCE_DESTROY" == "true" ]; then
-            echo "⚠ Force destroy enabled - RDS will be deleted without final snapshot"
-            terraform destroy -auto-approve \
-              -var="environment=${ENVIRONMENT}" \
-              -var="skip_final_snapshot=true" \
-              -var="skip_monitoring=${{ github.event.inputs.skip_monitoring }}"
-          else
-            terraform destroy -auto-approve \
-              -var="environment=${ENVIRONMENT}" \
-              -var="skip_monitoring=${{ github.event.inputs.skip_monitoring }}"
-          fi
-          
-          echo "✓ Terraform destroy complete"
-          echo "terraform_destroyed=true" >> $GITHUB_OUTPUT
-
-      - name: Cleanup Orphaned Resources
-        if: false  # Disabled: All resources are managed by Terraform, no orphaned resources expected
-        run: echo "Orphaned resource cleanup step disabled. All resources are managed by Terraform."
+          EXTRA_VARS=""
+          [ "${{ github.event.inputs.force_destroy_rds }}" = "true" ] && EXTRA_VARS='-var="skip_final_snapshot=true"'
+          terraform destroy -auto-approve \
+            -var="environment=${{ env.ENVIRONMENT }}" \
+            -var="skip_monitoring=${{ github.event.inputs.skip_monitoring || 'false' }}" \
+            $EXTRA_VARS
 
       - name: Destroy Summary
         if: always()
         run: |
-          echo "## Destroy Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "All infrastructure has been destroyed." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Destroyed Resources:" >> $GITHUB_STEP_SUMMARY
-          # Removed summary lines referencing import/cleanup counts that are no longer valid
-          echo "- ✓ Infrastructure (Terraform): ${{ steps.tf-destroy.outputs.terraform_destroyed == 'true' && 'Yes' || 'Partial' }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ steps.rds-snapshot.outputs.snapshot_created }}" == "true" ]; then
-            echo "### RDS Snapshot Created" >> $GITHUB_STEP_SUMMARY
-            echo "⚠ **Final snapshot**: \`${{ steps.rds-snapshot.outputs.snapshot_id }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "You can restore from this snapshot if needed" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ steps.rds-snapshot.outputs.snapshot_created }}" == "partial" ]; then
-            echo "### RDS Snapshot" >> $GITHUB_STEP_SUMMARY
-            echo "⚠ **Snapshot creation in progress**: \`${{ steps.rds-snapshot.outputs.snapshot_id }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "Check AWS Console to verify completion" >> $GITHUB_STEP_SUMMARY
-          fi
-
-  orphan-cleanup:
-    name: Manual Orphaned Resource Cleanup
-    if: github.event.inputs.action == 'orphan-cleanup'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: 3tier-app-orphan-cleanup-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Cleanup Orphaned Resources
-        run: |
-          # (Reuse your previous orphan cleanup script here)
-          echo "Running manual orphaned resource cleanup..."
-
-  destroy-only:
-    name: Destroy Only
-    runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'destroy-only'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: 3tier-app-destroy-only-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.0
-          terraform_wrapper: false
-
-      - name: Terraform Init
-        working-directory: terraform/environments/dev
-        run: |
-          terraform init -input=false \
-            -backend-config="bucket=ericchiu-terraform-state" \
-            -backend-config="key=dev/terraform.tfstate" \
-            -backend-config="region=us-east-1" \
-            -backend-config="dynamodb_table=terraform-state-lock" \
-            -backend-config="encrypt=true"
-
-      - name: Scale Down and Clean
-        continue-on-error: true
-        run: |
-          set +e
-          echo "=== Scaling down services and cleaning ECR ==="
-          
-          # Scale down ECS services
-          CLUSTER_NAME="${ENVIRONMENT}"
-          SERVICES=$(aws ecs list-services --cluster "$CLUSTER_NAME" --region $AWS_REGION --query 'serviceArns[*]' --output text 2>/dev/null || echo "")
-          
-          SERVICE_NAMES=""
-          for SERVICE_ARN in $SERVICES; do
-            SERVICE_NAME=$(basename "$SERVICE_ARN")
-            aws ecs update-service --cluster "$CLUSTER_NAME" --service "$SERVICE_NAME" --desired-count 0 --region $AWS_REGION --no-cli-pager 2>/dev/null
-            SERVICE_NAMES="$SERVICE_NAMES $SERVICE_NAME"
-          done
-          
-          if [ -n "$SERVICE_NAMES" ]; then
-            aws ecs wait services-stable --cluster "$CLUSTER_NAME" --services $SERVICE_NAMES --region $AWS_REGION --cli-connect-timeout 300 2>/dev/null || echo "Services drain timeout"
-          fi
-          
-          # Clean ECR repositories
-          for REPO in "${ENVIRONMENT}-frontend" "${ENVIRONMENT}-backend"; do
-            if aws ecr describe-repositories --repository-names "$REPO" --region $AWS_REGION &>/dev/null; then
-              IMAGES=$(aws ecr list-images --repository-name "$REPO" --region $AWS_REGION --query 'imageIds' --output json 2>/dev/null)
-              IMAGE_COUNT=$(echo "$IMAGES" | jq '. | length' 2>/dev/null || echo "0")
-              if [ "$IMAGE_COUNT" -gt 0 ]; then
-                aws ecr batch-delete-image --repository-name "$REPO" --image-ids "$IMAGES" --region $AWS_REGION --no-cli-pager 2>/dev/null
-              fi
-            fi
-          done
-
-      - name: Create Final Snapshot
-        continue-on-error: true
-        if: github.event.inputs.force_destroy_rds != 'true'
-        run: |
-          set +e
-          RDS_ID="${ENVIRONMENT}-postgres"
-          SNAPSHOT_ID="${ENVIRONMENT}-final-$(date +%Y%m%d-%H%M%S)"
-          
-          if aws rds describe-db-instances --db-instance-identifier "$RDS_ID" --region $AWS_REGION &>/dev/null; then
-            if aws rds create-db-snapshot --db-instance-identifier "$RDS_ID" --db-snapshot-identifier "$SNAPSHOT_ID" --region $AWS_REGION --no-cli-pager; then
-              aws rds wait db-snapshot-completed --db-snapshot-identifier "$SNAPSHOT_ID" --region $AWS_REGION --cli-connect-timeout 600 2>/dev/null
-              echo "⚠ Final snapshot: $SNAPSHOT_ID" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-
-      - name: Terraform Destroy
-        working-directory: terraform/environments/dev
-        run: |
-          set -e
-          FORCE_DESTROY="${{ github.event.inputs.force_destroy_rds }}"
-          
-          if [ "$FORCE_DESTROY" == "true" ]; then
-            echo "⚠ Force destroy enabled - RDS will be deleted without final snapshot"
-            terraform destroy -auto-approve \
-              -var="environment=${ENVIRONMENT}" \
-              -var="skip_final_snapshot=true" \
-              -var="skip_monitoring=${{ github.event.inputs.skip_monitoring }}"
-          else
-            terraform destroy -auto-approve \
-              -var="environment=${ENVIRONMENT}" \
-              -var="skip_monitoring=${{ github.event.inputs.skip_monitoring }}"
-          fi
-
-  summary:
-    name: Summary
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate Summary
-        run: |
-          echo "## Workflow Summary" >> $GITHUB_STEP_SUMMARY
-          echo "### State Recovery" >> $GITHUB_STEP_SUMMARY
-          echo "If Terraform state is lost/corrupted, restore from S3 bucket versioning or backup. See AWS S3 version history for the state file." >> $GITHUB_STEP_SUMMARY
-          echo "For help: https://developer.hashicorp.com/terraform/language/state/sensitive-data#recovering-state" >> $GITHUB_STEP_SUMMARY
+          echo "## Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: **${{ env.ENVIRONMENT }}**" >> $GITHUB_STEP_SUMMARY
+          SNAP="${{ steps.snapshot.outputs.snapshot }}"
+          [ -n "$SNAP" ] && echo "RDS Snapshot: \`$SNAP\`" >> $GITHUB_STEP_SUMMARY

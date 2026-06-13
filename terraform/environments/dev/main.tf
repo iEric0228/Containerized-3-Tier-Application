@@ -63,6 +63,7 @@ module "rds" {
   db_name                = var.db_name
   db_username            = var.db_username
   db_password_secret_arn = module.secrets.db_password_secret_arn
+  db_password            = module.secrets.db_password_value
   vpc_id                 = module.vpc.vpc_id
   private_subnet_ids     = module.vpc.private_subnet_ids # Always from correct VPC
   rds_sg_id              = module.security.rds_sg_id
@@ -73,8 +74,8 @@ module "rds" {
 module "ecs" {
   source                            = "../../modules/ECS"
   name_prefix                       = var.name_prefix
-  frontend_image                    = module.ecr.frontend_repository_url
-  backend_image                     = module.ecr.backend_repository_url
+  frontend_image                    = "${module.ecr.frontend_repository_url}:${var.image_tag}"
+  backend_image                     = "${module.ecr.backend_repository_url}:${var.image_tag}"
   private_subnet_ids                = module.vpc.private_subnet_ids
   ecs_security_group_id             = module.security.ecs_tasks_sg_id
   frontend_target_group_arn         = module.alb.frontend_target_group_arn
@@ -88,7 +89,7 @@ module "ecs" {
   db_password_secret_arn            = module.secrets.db_password_secret_arn
   grafana_admin_password_secret_arn = module.secrets.grafana_admin_password_secret_arn
   loki_host                         = module.monitoring.loki_endpoint
-  prometheus_url                    = module.monitoring.prometheus_url
+  prometheus_url                    = "${module.monitoring.prometheus_endpoint}/prometheus"
   loki_url                          = module.monitoring.loki_endpoint
   common_tags                       = merge(var.common_tags, { "Environment" = var.name_prefix })
   vpc_id                            = module.vpc.vpc_id

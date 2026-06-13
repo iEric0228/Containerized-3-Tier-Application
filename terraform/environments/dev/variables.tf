@@ -63,6 +63,12 @@ variable "environment" {
   type        = string
 }
 
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
+}
+
 variable "skip_monitoring" {
   description = "Whether to skip provisioning the monitoring stack"
   type        = bool

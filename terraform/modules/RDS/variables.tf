@@ -18,6 +18,12 @@ variable "db_password_secret_arn" {
   type        = string
 }
 
+variable "db_password" {
+  description = "The database password value (from Secrets Manager)"
+  type        = string
+  sensitive   = true
+}
+
 variable "vpc_id" {
   description = "The VPC ID where the RDS instance will be deployed"
   type        = string

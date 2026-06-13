@@ -147,6 +147,22 @@ resource "aws_security_group_rule" "prometheus_to_backend" {
   description              = "Prometheus metrics scraping from monitoring"
 }
 
+# EFS Access Points for data isolation
+resource "aws_efs_access_point" "grafana" {
+  file_system_id = aws_efs_file_system.monitoring.id
+
+  root_directory {
+    path = "/grafana-data"
+    creation_info {
+      owner_gid   = 0
+      owner_uid   = 0
+      permissions = "755"
+    }
+  }
+
+  tags = merge(var.common_tags, { Name = "${var.name_prefix}-grafana-ap" })
+}
+
 # CloudWatch Log Groups
 resource "aws_cloudwatch_log_group" "prometheus" {
   name              = "/ecs/${var.name_prefix}/prometheus"
@@ -354,7 +370,7 @@ scrape_configs:
         labels:
           service: 'grafana'
           tier: 'monitoring'
-    metrics_path: '/metrics'
+    metrics_path: '/grafana/metrics'
 EOT
 
   grafana_datasources = <<-EOT
@@ -363,7 +379,7 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://prometheus.${var.service_discovery_namespace_name}:9090
+    url: http://prometheus.${var.service_discovery_namespace_name}:9090/prometheus
     isDefault: true
     editable: false
     jsonData:
@@ -526,7 +542,8 @@ resource "aws_ecs_task_definition" "grafana" {
       transit_encryption_port = 2049
 
       authorization_config {
-        iam = "ENABLED"
+        access_point_id = aws_efs_access_point.grafana.id
+        iam             = "ENABLED"
       }
     }
   }
@@ -589,7 +606,11 @@ resource "aws_ecs_task_definition" "grafana" {
       environment = [
         {
           name  = "GF_SERVER_ROOT_URL"
-          value = "http://localhost:3000"
+          value = "%(protocol)s://%(domain)s/grafana/"
+        },
+        {
+          name  = "GF_SERVER_SERVE_FROM_SUB_PATH"
+          value = "true"
         },
         {
           name  = "GF_INSTALL_PLUGINS"
@@ -631,7 +652,7 @@ resource "aws_ecs_task_definition" "grafana" {
       }
 
       healthCheck = {
-        command     = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+        command     = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/grafana/api/health || exit 1"]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -786,7 +807,7 @@ resource "aws_lb_target_group" "grafana" {
     healthy_threshold   = 2
     interval            = 30
     matcher             = "200"
-    path                = "/api/health"
+    path                = "/grafana/api/health"
     port                = "traffic-port"
     protocol            = "HTTP"
     timeout             = 5

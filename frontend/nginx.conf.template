@@ -29,7 +29,7 @@ http {
     resolver_timeout 5s;
     
     server {
-        listen 80;
+        listen 8080;
         server_name localhost;
         root /usr/share/nginx/html;
         index index.html;

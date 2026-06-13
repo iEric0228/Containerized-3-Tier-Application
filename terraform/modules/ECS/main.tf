@@ -164,7 +164,7 @@ resource "aws_ecs_task_definition" "frontend" {
 
       portMappings = [
         {
-          containerPort = 80
+          containerPort = 8080
           protocol      = "tcp"
         }
       ]
@@ -181,7 +181,7 @@ resource "aws_ecs_task_definition" "frontend" {
       healthCheck = {
         command = [
           "CMD-SHELL",
-          "wget --quiet --tries=1 --spider http://localhost:80/health || exit 1"
+          "wget --quiet --tries=1 --spider http://localhost:8080/health || exit 1"
         ]
         interval    = 30
         timeout     = 10
@@ -259,12 +259,24 @@ resource "aws_ecs_task_definition" "backend" {
           value = "3001"
         },
         {
+          name  = "ALLOWED_ORIGINS"
+          value = "http://${var.alb_dns_name}"
+        },
+        {
           name  = "DB_HOST"
           value = var.db_host
         },
         {
           name  = "DB_PORT"
           value = "5432"
+        },
+        {
+          name  = "DB_SSL"
+          value = "true"
+        },
+        {
+          name  = "DB_SSL_REJECT_UNAUTHORIZED"
+          value = "false"
         },
         {
           name  = "DB_NAME"
@@ -345,7 +357,7 @@ resource "aws_ecs_service" "frontend" {
   load_balancer {
     target_group_arn = var.frontend_target_group_arn
     container_name   = "frontend"
-    container_port   = 80
+    container_port   = 8080
   }
 
   deployment_maximum_percent = 200
@@ -358,6 +370,10 @@ resource "aws_ecs_service" "frontend" {
   }
 
   enable_execute_command = var.enable_execute_command
+
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   depends_on = [var.alb_listener]
 
@@ -398,6 +414,10 @@ resource "aws_ecs_service" "backend" {
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  lifecycle {
+    ignore_changes = [task_definition]
   }
 
   enable_execute_command = var.enable_execute_command

@@ -23,7 +23,7 @@
 | **Backend Architecture** | Express + TypeScript, singleton DB pool with event-driven metrics, transactional DB initialization (BEGIN/COMMIT/ROLLBACK), centralized `AppError` error handler, input validation on all proxy routes |
 | **Security Hardening** | Nginx CSP without `unsafe-eval`, env-based SSL config (`DB_SSL` / `DB_SSL_REJECT_UNAUTHORIZED`), `trust proxy` for correct per-IP rate limiting, validated PromQL/LogQL query parameters blocking shell metacharacters |
 | **Infrastructure as Code** | Terraform 1.9 with modular structure (VPC, ECS, RDS, ALB, ECR, security, secrets, monitoring), remote S3 backend, environment-based workspaces |
-| **CI/CD** | GitHub Actions with `workflow_dispatch` inputs for `deploy-only`, `deploy-test-destroy`, `destroy-only`; GitHub Environments approval gate for production; Docker Scout security scanning |
+| **CI/CD** | GitHub Actions: automatic build/push/deploy on push to `main`, manual `workflow_dispatch` for infrastructure (`deploy-app`, `deploy-infrastructure`, `deploy-all`, `destroy`); OIDC-based AWS auth; GitHub Environments approval gate for production |
 
 ---
 
@@ -56,7 +56,7 @@
 │   Responsive design     │  │   pg connection pool     │
 │                         │  │                          │
 │   ECS Fargate           │  │   ECS Fargate            │
-│   Port: 80              │  │   Port: 3001             │
+│   Port: 8080            │  │   Port: 3001             │
 └─────────────────────────┘  └──────────┬───────────────┘
                                         │ SQL (private)
                                         ▼
@@ -71,23 +71,25 @@
                              └──────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────────┐
-│                    OBSERVABILITY STACK                         │
+│                 OBSERVABILITY STACK                             │
 │                                                                │
-│  Prometheus :9090  ←─── backend :3001/metrics                 │
-│  Promtail   :9080  ←─── Docker socket (container logs)        │
-│  grafana/otel-lgtm :3002 / :3100                              │
-│    ├── Grafana  (dashboards + provisioned datasources)        │
-│    ├── Loki     (log aggregation, {job="backend"})            │
-│    ├── Tempo    (distributed tracing)                         │
-│    └── Mimir    (long-term metrics storage)                   │
-│  postgres-exporter :9187  ←─── PostgreSQL pool stats          │
+│  Local (Docker Compose):                                       │
+│    grafana/otel-lgtm :3002/:3100 (Grafana, Loki, Tempo, Mimir)│
+│    Prometheus :9090, Promtail :9080, postgres-exporter :9187   │
+│                                                                │
+│  AWS (ECS Fargate):                                            │
+│    Monitoring ALB → /grafana, /prometheus                      │
+│    Prometheus  (service discovery: prometheus.dev.local:9090)  │
+│    Grafana     (service discovery: grafana.dev.local:3000)     │
+│    Loki        (service discovery: loki.dev.local:3100)        │
+│    EFS persistent storage for metrics, logs, dashboards        │
 └────────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────────┐
 │                   AWS VPC                                      │
-│   Public subnets:  Frontend ECS tasks, ALB                    │
-│   Private subnets: Backend ECS tasks, RDS                     │
-│   Multi-AZ · Security groups · NAT gateway                    │
+│   Public subnets:  ALB, Monitoring ALB, NAT gateway            │
+│   Private subnets: Frontend + Backend ECS tasks, RDS           │
+│   Multi-AZ · Security groups · Cloud Map service discovery     │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -235,7 +237,7 @@ Containerized-3-Tier-Application/
 │   │   ├── ECR/                     # Container registry with scanning
 │   │   ├── security/                # Security groups, IAM roles
 │   │   ├── secret/                  # AWS Secrets Manager
-│   │   └── monitoring/              # CloudWatch log groups
+│   │   └── monitoring/              # Prometheus, Grafana, Loki on Fargate + EFS + ALB
 │   └── environments/
 │       └── dev/                     # Dev workspace (remote S3 backend)
 │
@@ -261,45 +263,55 @@ Containerized-3-Tier-Application/
 
 ## AWS Deployment
 
-Infrastructure and deployment are fully automated via GitHub Actions. No manual `terraform apply` or `aws ecs update-service` commands are needed.
+Application deployments are fully automated on push to `main`. Infrastructure changes require a manual workflow dispatch.
 
 ### Setup (one-time)
 
-1. Add AWS credentials and Terraform state bucket to GitHub repository secrets:
-   - `AWS_ACCESS_KEY_ID`
-   - `AWS_SECRET_ACCESS_KEY`
-   - `TF_STATE_BUCKET` (S3 bucket for Terraform state)
-   - `POSTGRES_PASSWORD` (database credential)
-   - `GRAFANA_ADMIN_PASSWORD` (Grafana login)
+1. Configure OIDC-based AWS authentication and add repository secrets:
+   - `AWS_ROLE_ARN` — IAM role ARN for GitHub OIDC federation
+   - `TF_VAR_db_password` — RDS database password
+   - `TF_VAR_grafana_admin_password` — Grafana admin password
 
 2. Create a `production` GitHub Environment with required reviewer(s):
    **Repository → Settings → Environments → New environment → `production`**
 
-### Deploy
+3. Terraform state backend (auto-bootstrapped by CI):
+   - S3 bucket: `ericchiu-terraform-state`
+   - DynamoDB lock table: `terraform-state-lock`
 
-Trigger the pipeline from the **Actions** tab → **CI/CD Pipeline** → **Run workflow**:
+### Pipeline Flow
+
+**On push to `main`** (automatic):
+
+```text
+test → build & push images to ECR → deploy to ECS → smoke test
+```
+
+**On manual `workflow_dispatch`** (infrastructure):
 
 | Input | Options | Notes |
 |-------|---------|-------|
-| `action` | `deploy-only`, `deploy-test-destroy`, `destroy-only` | Controls what the pipeline does |
+| `action` | `deploy-app`, `deploy-infrastructure`, `deploy-all`, `destroy` | Controls what the pipeline does |
 | `environment` | `dev`, `prod` | `prod` requires Environment approval |
 | `skip_tests` | `true` / `false` | Speeds up iteration during development |
-| `keep_alive_minutes` | `0–120` | How long to keep infra up before auto-destroy |
+| `skip_monitoring` | `true` / `false` | Skip monitoring stack deployment |
+| `force_rebuild` | `true` / `false` | Ignore Docker build cache |
+| `force_destroy_rds` | `true` / `false` | Skip RDS final snapshot (dev only) |
 
-The pipeline runs: lint → test → Docker build → Terraform plan → **approval gate (prod only)** → Terraform apply → ECS deploy → smoke test → optional destroy.
+App deployment uses `aws ecs register-task-definition` + `update-service` directly — no Terraform involved. This decouples app releases from infrastructure changes and avoids Terraform reverting CI/CD-deployed task definitions.
 
 ### Terraform modules
 
 | Module | Resources |
 |--------|-----------|
 | **VPC** | VPC, public/private subnets (Multi-AZ), NAT gateway, route tables, internet gateway |
-| **ECS** | Fargate cluster, task definitions (frontend + backend), services, auto-scaling |
+| **ECS** | Fargate cluster, task definitions (frontend + backend), services, auto-scaling, Cloud Map service discovery |
 | **RDS** | PostgreSQL 15 instance, subnet group, parameter group, automated backups |
-| **ALB** | Application Load Balancer, target groups, listeners, health checks |
-| **ECR** | Private container registries (frontend + backend), lifecycle policies |
-| **security** | Security groups (ALB, ECS, RDS), IAM roles + policies |
-| **secret** | AWS Secrets Manager for database credentials |
-| **monitoring** | CloudWatch log groups for ECS tasks |
+| **ALB** | Application Load Balancer, target groups, listeners, path-based routing |
+| **ECR** | Private container registries (frontend + backend), immutable tags |
+| **security** | Security groups (ALB, ECS, RDS, monitoring), IAM roles + policies |
+| **secret** | AWS Secrets Manager for DB credentials + Grafana admin password |
+| **monitoring** | Prometheus, Grafana, Loki on ECS Fargate; dedicated monitoring ALB; EFS persistent storage; Cloud Map service discovery; CloudWatch log groups |
 
 ---
 

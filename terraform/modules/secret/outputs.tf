@@ -3,6 +3,12 @@ output "db_password_secret_arn" {
   value       = aws_secretsmanager_secret.db_password.arn
 }
 
+output "db_password_value" {
+  description = "The DB password value (from the secret version)"
+  value       = aws_secretsmanager_secret_version.db_password.secret_string
+  sensitive   = true
+}
+
 output "db_username_secret_arn" {
   description = "ARN of the DB username secret"
   value       = aws_secretsmanager_secret.db_username.arn
