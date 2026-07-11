@@ -64,7 +64,7 @@
                              │     DATA TIER            │
                              │     ─────────────        │
                              │     PostgreSQL 15        │
-                             │     AWS RDS Multi-AZ     │
+                             │   AWS RDS (Multi-AZ opt) │
                              │     Automated backups    │
                              │     Private subnet       │
                              │     Port: 5432 (private) │
@@ -232,7 +232,7 @@ Containerized-3-Tier-Application/
 │   ├── modules/
 │   │   ├── VPC/                     # VPC, subnets, NAT gateway, routing
 │   │   ├── ECS/                     # Fargate task definitions + services
-│   │   ├── RDS/                     # PostgreSQL 15, Multi-AZ, encrypted
+│   │   ├── RDS/                     # PostgreSQL 15, optional Multi-AZ, encrypted
 │   │   ├── ALB/                     # Application Load Balancer + target groups
 │   │   ├── ECR/                     # Container registry with scanning
 │   │   ├── security/                # Security groups, IAM roles
@@ -312,6 +312,22 @@ App deployment uses `aws ecs register-task-definition` + `update-service` direct
 | **security** | Security groups (ALB, ECS, RDS, monitoring), IAM roles + policies |
 | **secret** | AWS Secrets Manager for DB credentials + Grafana admin password |
 | **monitoring** | Prometheus, Grafana, Loki on ECS Fargate; dedicated monitoring ALB; EFS persistent storage; Cloud Map service discovery; CloudWatch log groups |
+
+### Cost profile (dev, us-east-1)
+
+Rough steady-state cost with everything deployed and idle:
+
+| Line item | Driver | ~Monthly |
+|-----------|--------|----------|
+| 2× NAT Gateway | one per AZ for Multi-AZ symmetry | ~$65 |
+| 2× ALB | app + dedicated monitoring ALB | ~$33 |
+| ECS Fargate | app + monitoring tasks (dev-sized) | ~$30–60 |
+| RDS PostgreSQL | `db.t3.micro` | ~$13 |
+| EFS + logs | monitoring storage; logs capped at 7d (monitoring) / 30d (app) | ~$5 |
+
+**Keep it bounded:** log retention policies are set in Terraform, dev uses the smallest RDS class, and the whole stack tears down with the `destroy` workflow-dispatch action (or `terraform destroy` in `terraform/environments/dev`). Don't leave it running between demo sessions — the NAT gateways and ALBs bill hourly regardless of traffic.
+
+**Known trade-off:** dev runs one NAT gateway per AZ, matching the prod topology. A single shared NAT would halve that line item at the cost of AZ-failure symmetry — deliberate here, since the repo demonstrates the production pattern.
 
 ---
 
